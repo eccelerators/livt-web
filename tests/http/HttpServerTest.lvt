@@ -1,0 +1,700 @@
+namespace Livt.Web.Tests.Http
+
+using Livt.Web.Http
+using Livt.Net
+
+@Test
+component HttpServerTest
+{
+	server: HttpServer
+	generator: HttpResponseGenerator
+	frameIo: EthernetFrameIo
+	axi: Axi4LiteEthernetLiteAdapter
+
+	new()
+	{
+		var localMac: byte[6]
+		localMac[0] = 0x02
+		localMac[1] = 0xAA
+		localMac[2] = 0xBB
+		localMac[3] = 0xCC
+		localMac[4] = 0xDD
+		localMac[5] = 0xEE
+		var frameIoMac: byte[6]
+		frameIoMac[0] = 0x02
+		frameIoMac[1] = 0xAA
+		frameIoMac[2] = 0xBB
+		frameIoMac[3] = 0xCC
+		frameIoMac[4] = 0xDD
+		frameIoMac[5] = 0xEE
+		this.axi = new Axi4LiteEthernetLiteAdapter()
+		this.frameIo = new EthernetFrameIo(
+			this.axi,
+			frameIoMac)
+		this.generator = new HttpResponseGenerator()
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+		var localPort: byte[2]
+		localPort[0] = 0x00
+		localPort[1] = 0x50
+		this.server = new HttpServer(localMac, localIp, localPort)
+	}
+
+	fn CopyFrameToServer()
+	{
+		this.server.BeginFrame()
+
+		for (var i = 0; i < 128; i++)
+		{
+			var value = this.frameIo.GetRxByte(i)
+			this.server.LoadRxByte(i, value)
+		}
+
+		this.frameIo.ConsumeRxFrame()
+		this.server.HandleFrame()
+	}
+
+	fn LoadArpEthernetIpv4RequestHeader(header: byte[8])
+	{
+		this.frameIo.LoadRxByte(14, header[0])
+		this.frameIo.LoadRxByte(15, header[1])
+		this.frameIo.LoadRxByte(16, header[2])
+		this.frameIo.LoadRxByte(17, header[3])
+		this.frameIo.LoadRxByte(18, header[4])
+		this.frameIo.LoadRxByte(19, header[5])
+		this.frameIo.LoadRxByte(20, header[6])
+		this.frameIo.LoadRxByte(21, header[7])
+	}
+
+	fn LoadArpSenderMac(senderMac: byte[6])
+	{
+		this.frameIo.LoadRxByte(22, senderMac[0])
+		this.frameIo.LoadRxByte(23, senderMac[1])
+		this.frameIo.LoadRxByte(24, senderMac[2])
+		this.frameIo.LoadRxByte(25, senderMac[3])
+		this.frameIo.LoadRxByte(26, senderMac[4])
+		this.frameIo.LoadRxByte(27, senderMac[5])
+	}
+
+	fn LoadArpTargetIp(targetIp: byte[4])
+	{
+		this.frameIo.LoadRxByte(38, targetIp[0])
+		this.frameIo.LoadRxByte(39, targetIp[1])
+		this.frameIo.LoadRxByte(40, targetIp[2])
+		this.frameIo.LoadRxByte(41, targetIp[3])
+	}
+
+	fn LoadEtherType(etherType: byte[2])
+	{
+		this.frameIo.LoadRxByte(12, etherType[0])
+		this.frameIo.LoadRxByte(13, etherType[1])
+	}
+
+	fn LoadEthernetSourceMac(sourceMac: byte[6])
+	{
+		this.frameIo.LoadRxByte(6, sourceMac[0])
+		this.frameIo.LoadRxByte(7, sourceMac[1])
+		this.frameIo.LoadRxByte(8, sourceMac[2])
+		this.frameIo.LoadRxByte(9, sourceMac[3])
+		this.frameIo.LoadRxByte(10, sourceMac[4])
+		this.frameIo.LoadRxByte(11, sourceMac[5])
+	}
+
+	fn LoadIpv4FixedTcpHeader(ipHeader: byte[4])
+	{
+		this.frameIo.LoadRxByte(14, ipHeader[0])
+		this.frameIo.LoadRxByte(20, ipHeader[1])
+		this.frameIo.LoadRxByte(21, ipHeader[2])
+		this.frameIo.LoadRxByte(23, ipHeader[3])
+	}
+
+	fn LoadIpv4SourceIp(sourceIp: byte[4])
+	{
+		this.frameIo.LoadRxByte(26, sourceIp[0])
+		this.frameIo.LoadRxByte(27, sourceIp[1])
+		this.frameIo.LoadRxByte(28, sourceIp[2])
+		this.frameIo.LoadRxByte(29, sourceIp[3])
+	}
+
+	fn LoadIpv4DestinationIp(destinationIp: byte[4])
+	{
+		this.frameIo.LoadRxByte(30, destinationIp[0])
+		this.frameIo.LoadRxByte(31, destinationIp[1])
+		this.frameIo.LoadRxByte(32, destinationIp[2])
+		this.frameIo.LoadRxByte(33, destinationIp[3])
+	}
+
+	fn LoadTcpSourcePort(sourcePort: byte[2])
+	{
+		this.frameIo.LoadRxByte(34, sourcePort[0])
+		this.frameIo.LoadRxByte(35, sourcePort[1])
+	}
+
+	fn LoadTcpDestinationPort(destinationPort: byte[2])
+	{
+		this.frameIo.LoadRxByte(36, destinationPort[0])
+		this.frameIo.LoadRxByte(37, destinationPort[1])
+	}
+
+	fn LoadTcpSeqNum(seqNum: byte[4])
+	{
+		this.frameIo.LoadRxByte(38, seqNum[0])
+		this.frameIo.LoadRxByte(39, seqNum[1])
+		this.frameIo.LoadRxByte(40, seqNum[2])
+		this.frameIo.LoadRxByte(41, seqNum[3])
+	}
+
+	fn LoadTcpDataOffsetAndFlags(dataOffsetAndFlags: byte[2])
+	{
+		this.frameIo.LoadRxByte(46, dataOffsetAndFlags[0])
+		this.frameIo.LoadRxByte(47, dataOffsetAndFlags[1])
+	}
+
+	fn LoadTcpPayload6(payload: byte[6])
+	{
+		this.frameIo.LoadRxByte(54, payload[0])
+		this.frameIo.LoadRxByte(55, payload[1])
+		this.frameIo.LoadRxByte(56, payload[2])
+		this.frameIo.LoadRxByte(57, payload[3])
+		this.frameIo.LoadRxByte(58, payload[4])
+		this.frameIo.LoadRxByte(59, payload[5])
+	}
+
+	@Test
+	fn IgnoresArpRequest()
+	{
+		var arpEthernetIpv4Request: byte[8]
+		arpEthernetIpv4Request[0] = 0x00
+		arpEthernetIpv4Request[1] = 0x01
+		arpEthernetIpv4Request[2] = 0x08
+		arpEthernetIpv4Request[3] = 0x00
+		arpEthernetIpv4Request[4] = 0x06
+		arpEthernetIpv4Request[5] = 0x04
+		arpEthernetIpv4Request[6] = 0x00
+		arpEthernetIpv4Request[7] = 0x01
+
+		var clientMac: byte[6]
+		clientMac[0] = 0x02
+		clientMac[1] = 0x10
+		clientMac[2] = 0x20
+		clientMac[3] = 0x30
+		clientMac[4] = 0x40
+		clientMac[5] = 0x50
+
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+
+		this.LoadArpEthernetIpv4RequestHeader(arpEthernetIpv4Request)
+		this.LoadArpSenderMac(clientMac)
+		this.LoadArpTargetIp(localIp)
+		this.frameIo.SubmitRxFrame()
+
+		this.CopyFrameToServer()
+
+		assert this.server.HasResponse() == false
+		assert this.server.GetResponseKind() == 0
+		assert this.server.GetResponseLength() == 0
+	}
+
+	@Test
+	fn RespondsToHttpGetRootRequest()
+	{
+		this.server.SetBodyConfig(1, 64, 717318)
+
+		var httpGetRoot = "GET / ".Encode()
+
+		var clientMac: byte[6]
+		clientMac[0] = 0x02
+		clientMac[1] = 0x10
+		clientMac[2] = 0x20
+		clientMac[3] = 0x30
+		clientMac[4] = 0x40
+		clientMac[5] = 0x50
+
+		var clientIp: byte[4]
+		clientIp[0] = 0x0A
+		clientIp[1] = 0x00
+		clientIp[2] = 0x00
+		clientIp[3] = 0x02
+
+		var etherTypeIpv4: byte[2]
+		etherTypeIpv4[0] = 0x08
+		etherTypeIpv4[1] = 0x00
+
+		var fixedIpv4TcpHeader: byte[4]
+		fixedIpv4TcpHeader[0] = 0x45
+		fixedIpv4TcpHeader[1] = 0x40
+		fixedIpv4TcpHeader[2] = 0x00
+		fixedIpv4TcpHeader[3] = 0x06
+
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+
+		var clientPort: byte[2]
+		clientPort[0] = 0xC0
+		clientPort[1] = 0x01
+
+		var httpPort: byte[2]
+		httpPort[0] = 0x00
+		httpPort[1] = 0x50
+
+		var clientSeq: byte[4]
+		clientSeq[0] = 0xAA
+		clientSeq[1] = 0xBB
+		clientSeq[2] = 0xCC
+		clientSeq[3] = 0xDD
+
+		// Send SYN
+		var tcpSyn: byte[2]
+		tcpSyn[0] = 0x50
+		tcpSyn[1] = 0x02
+
+		this.LoadEthernetSourceMac(clientMac)
+		this.LoadEtherType(etherTypeIpv4)
+		this.LoadIpv4FixedTcpHeader(fixedIpv4TcpHeader)
+		this.LoadIpv4SourceIp(clientIp)
+		this.LoadIpv4DestinationIp(localIp)
+		this.LoadTcpSourcePort(clientPort)
+		this.LoadTcpDestinationPort(httpPort)
+		this.LoadTcpSeqNum(clientSeq)
+		this.LoadTcpDataOffsetAndFlags(tcpSyn)
+		this.frameIo.SubmitRxFrame()
+
+		this.CopyFrameToServer()
+
+		assert this.server.GetResponseKind() == 3
+		assert this.server.GetResponseLength() == 60
+
+		// A host retransmits SYN when the SYN-ACK is missed or rejected. The
+		// endpoint should refresh and send SYN-ACK again while in SYN_RECEIVED.
+		this.frameIo.SubmitRxFrame()
+
+		this.CopyFrameToServer()
+
+		assert this.server.GetResponseKind() == 3
+		assert this.server.GetResponseLength() == 60
+
+		// Send ACK
+		var tcpAck: byte[2]
+		tcpAck[0] = 0x50
+		tcpAck[1] = 0x10
+
+		this.LoadTcpDataOffsetAndFlags(tcpAck)
+		this.frameIo.SubmitRxFrame()
+
+		this.CopyFrameToServer()
+
+		assert this.server.HasResponse() == false
+
+		// Send HTTP GET
+		var tcpPshAck: byte[2]
+		tcpPshAck[0] = 0x50
+		tcpPshAck[1] = 0x18
+
+		this.LoadTcpDataOffsetAndFlags(tcpPshAck)
+		this.LoadTcpPayload6(httpGetRoot)
+		this.frameIo.SubmitRxFrame()
+
+		this.CopyFrameToServer()
+
+		var indexLength = 64
+		var bodyOffset = this.generator.GetBodyFrameOffset(indexLength)
+		var expectedResponseLength = this.generator.GetResponseFrameLength(indexLength)
+
+		assert this.server.AcceptedHttpRequest() == true
+		assert this.server.GetResponseKind() == 2
+		assert this.server.GetResponseLength() == expectedResponseLength
+		assert this.server.IsHttpBodyFrameIndex(bodyOffset) == true
+		assert this.server.GetHttpBodyIndex(bodyOffset) == 0
+		assert this.server.GetResponseByte(bodyOffset, 0x3C) == 0x3C
+	}
+
+	@Test
+	fn CalculatesSynAckChecksumForHighTcpBytes()
+	{
+		var clientMac: byte[6]
+		clientMac[0] = 0x9C
+		clientMac[1] = 0xEB
+		clientMac[2] = 0xE8
+		clientMac[3] = 0x16
+		clientMac[4] = 0x7A
+		clientMac[5] = 0x21
+
+		var clientIp: byte[4]
+		clientIp[0] = 0x0A
+		clientIp[1] = 0x00
+		clientIp[2] = 0x00
+		clientIp[3] = 0x65
+
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+
+		var etherTypeIpv4: byte[2]
+		etherTypeIpv4[0] = 0x08
+		etherTypeIpv4[1] = 0x00
+
+		var fixedIpv4TcpHeader: byte[4]
+		fixedIpv4TcpHeader[0] = 0x45
+		fixedIpv4TcpHeader[1] = 0x40
+		fixedIpv4TcpHeader[2] = 0x00
+		fixedIpv4TcpHeader[3] = 0x06
+
+		var clientPort: byte[2]
+		clientPort[0] = 0x8C
+		clientPort[1] = 0x8A
+
+		var httpPort: byte[2]
+		httpPort[0] = 0x00
+		httpPort[1] = 0x50
+
+		var clientSeq: byte[4]
+		clientSeq[0] = 0x8F
+		clientSeq[1] = 0x4E
+		clientSeq[2] = 0x3C
+		clientSeq[3] = 0x39
+
+		var tcpSyn: byte[2]
+		tcpSyn[0] = 0x50
+		tcpSyn[1] = 0x02
+
+		this.LoadEthernetSourceMac(clientMac)
+		this.LoadEtherType(etherTypeIpv4)
+		this.LoadIpv4FixedTcpHeader(fixedIpv4TcpHeader)
+		this.LoadIpv4SourceIp(clientIp)
+		this.LoadIpv4DestinationIp(localIp)
+		this.LoadTcpSourcePort(clientPort)
+		this.LoadTcpDestinationPort(httpPort)
+		this.LoadTcpSeqNum(clientSeq)
+		this.LoadTcpDataOffsetAndFlags(tcpSyn)
+		this.frameIo.SubmitRxFrame()
+
+		this.CopyFrameToServer()
+
+		assert this.server.GetResponseKind() == 3
+		assert this.server.GetResponseByte(24, 0x00) == 0x26
+		assert this.server.GetResponseByte(25, 0x00) == 0x69
+		assert this.server.GetResponseByte(42, 0x00) == 0x8F
+		assert this.server.GetResponseByte(45, 0x00) == 0x3A
+		assert this.server.GetResponseByte(50, 0x00) == 0x3F
+		assert this.server.GetResponseByte(51, 0x00) == 0x09
+	}
+
+	@Test
+	fn RespondsToHttpGetAboutRequest()
+	{
+		// Route 2 (/about, 70-byte body) must produce a 188-byte frame
+		// (Ethernet 14 + IPv4 20 + TCP 20 + HTTP header 64 + body 70),
+		// not the 182-byte frame used for the / route (64-byte body).
+		this.server.SetBodyConfig(1, 64, 717318)
+		this.server.SetBodyConfig(2, 70, 738428)
+		this.server.SetRoutePath(2, 2)
+
+		var clientMac: byte[6]
+		clientMac[0] = 0x02
+		clientMac[1] = 0x10
+		clientMac[2] = 0x20
+		clientMac[3] = 0x30
+		clientMac[4] = 0x40
+		clientMac[5] = 0x50
+
+		var clientIp: byte[4]
+		clientIp[0] = 0x0A
+		clientIp[1] = 0x00
+		clientIp[2] = 0x00
+		clientIp[3] = 0x02
+
+		var etherTypeIpv4: byte[2]
+		etherTypeIpv4[0] = 0x08
+		etherTypeIpv4[1] = 0x00
+
+		var fixedIpv4TcpHeader: byte[4]
+		fixedIpv4TcpHeader[0] = 0x45
+		fixedIpv4TcpHeader[1] = 0x40
+		fixedIpv4TcpHeader[2] = 0x00
+		fixedIpv4TcpHeader[3] = 0x06
+
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+
+		var clientPort: byte[2]
+		clientPort[0] = 0xC0
+		clientPort[1] = 0x01
+
+		var httpPort: byte[2]
+		httpPort[0] = 0x00
+		httpPort[1] = 0x50
+
+		var clientSeq: byte[4]
+		clientSeq[0] = 0xAA
+		clientSeq[1] = 0xBB
+		clientSeq[2] = 0xCC
+		clientSeq[3] = 0xDD
+
+		// Send SYN
+		var tcpSyn: byte[2]
+		tcpSyn[0] = 0x50
+		tcpSyn[1] = 0x02
+
+		this.LoadEthernetSourceMac(clientMac)
+		this.LoadEtherType(etherTypeIpv4)
+		this.LoadIpv4FixedTcpHeader(fixedIpv4TcpHeader)
+		this.LoadIpv4SourceIp(clientIp)
+		this.LoadIpv4DestinationIp(localIp)
+		this.LoadTcpSourcePort(clientPort)
+		this.LoadTcpDestinationPort(httpPort)
+		this.LoadTcpSeqNum(clientSeq)
+		this.LoadTcpDataOffsetAndFlags(tcpSyn)
+		this.frameIo.SubmitRxFrame()
+
+		this.CopyFrameToServer()
+
+		assert this.server.GetResponseKind() == 3
+
+		// Send ACK to complete handshake
+		var tcpAck: byte[2]
+		tcpAck[0] = 0x50
+		tcpAck[1] = 0x10
+
+		this.LoadTcpDataOffsetAndFlags(tcpAck)
+		this.frameIo.SubmitRxFrame()
+
+		this.CopyFrameToServer()
+
+		assert this.server.HasResponse() == false
+
+		// Send PSH+ACK with GET /about
+		var tcpPshAck: byte[2]
+		tcpPshAck[0] = 0x50
+		tcpPshAck[1] = 0x18
+
+		this.LoadTcpDataOffsetAndFlags(tcpPshAck)
+		// "GET /about " = 47 45 54 20 2F 61 62 6F 75 74 20
+		this.frameIo.LoadRxByte(54, 0x47)
+		this.frameIo.LoadRxByte(55, 0x45)
+		this.frameIo.LoadRxByte(56, 0x54)
+		this.frameIo.LoadRxByte(57, 0x20)
+		this.frameIo.LoadRxByte(58, 0x2F)
+		this.frameIo.LoadRxByte(59, 0x61)
+		this.frameIo.LoadRxByte(60, 0x62)
+		this.frameIo.LoadRxByte(61, 0x6F)
+		this.frameIo.LoadRxByte(62, 0x75)
+		this.frameIo.LoadRxByte(63, 0x74)
+		this.frameIo.LoadRxByte(64, 0x20)
+		this.frameIo.SubmitRxFrame()
+
+		this.CopyFrameToServer()
+
+		var aboutLength = 70
+		var expectedResponseLength = this.generator.GetResponseFrameLength(aboutLength)
+
+		assert this.server.AcceptedRoute2Request() == true
+		assert this.server.GetResponseKind() == 4
+		assert this.server.GetResponseLength() == expectedResponseLength
+	}
+
+	@Test
+	fn RespondsToHttpGetStatusRequest()
+	{
+		this.server.SetBodyConfig(1, 64, 717318)
+		this.server.SetBodyConfig(2, 70, 738428)
+		this.server.SetBodyConfig(3, 451, 4784892)
+		this.server.SetRoutePath(2, 2)
+		this.server.SetRoutePath(3, 3)
+
+		var clientMac: byte[6]
+		clientMac[0] = 0x02
+		clientMac[1] = 0x10
+		clientMac[2] = 0x20
+		clientMac[3] = 0x30
+		clientMac[4] = 0x40
+		clientMac[5] = 0x50
+
+		var clientIp: byte[4]
+		clientIp[0] = 0x0A
+		clientIp[1] = 0x00
+		clientIp[2] = 0x00
+		clientIp[3] = 0x02
+
+		var etherTypeIpv4: byte[2]
+		etherTypeIpv4[0] = 0x08
+		etherTypeIpv4[1] = 0x00
+
+		var fixedIpv4TcpHeader: byte[4]
+		fixedIpv4TcpHeader[0] = 0x45
+		fixedIpv4TcpHeader[1] = 0x40
+		fixedIpv4TcpHeader[2] = 0x00
+		fixedIpv4TcpHeader[3] = 0x06
+
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+
+		var clientPort: byte[2]
+		clientPort[0] = 0xC0
+		clientPort[1] = 0x01
+
+		var httpPort: byte[2]
+		httpPort[0] = 0x00
+		httpPort[1] = 0x50
+
+		var clientSeq: byte[4]
+		clientSeq[0] = 0xAA
+		clientSeq[1] = 0xBB
+		clientSeq[2] = 0xCC
+		clientSeq[3] = 0xDD
+
+		var tcpSyn: byte[2]
+		tcpSyn[0] = 0x50
+		tcpSyn[1] = 0x02
+
+		this.LoadEthernetSourceMac(clientMac)
+		this.LoadEtherType(etherTypeIpv4)
+		this.LoadIpv4FixedTcpHeader(fixedIpv4TcpHeader)
+		this.LoadIpv4SourceIp(clientIp)
+		this.LoadIpv4DestinationIp(localIp)
+		this.LoadTcpSourcePort(clientPort)
+		this.LoadTcpDestinationPort(httpPort)
+		this.LoadTcpSeqNum(clientSeq)
+		this.LoadTcpDataOffsetAndFlags(tcpSyn)
+		this.frameIo.SubmitRxFrame()
+
+		this.CopyFrameToServer()
+
+		var tcpAck: byte[2]
+		tcpAck[0] = 0x50
+		tcpAck[1] = 0x10
+
+		this.LoadTcpDataOffsetAndFlags(tcpAck)
+		this.frameIo.SubmitRxFrame()
+
+		this.CopyFrameToServer()
+
+		var tcpPshAck: byte[2]
+		tcpPshAck[0] = 0x50
+		tcpPshAck[1] = 0x18
+		var httpGetStatus = "GET /status ".Encode()
+
+		this.LoadTcpDataOffsetAndFlags(tcpPshAck)
+		for (var i = 0; i < 12; i++)
+		{
+			this.frameIo.LoadRxByte(54 + i, httpGetStatus[i])
+		}
+		this.frameIo.SubmitRxFrame()
+
+		this.CopyFrameToServer()
+
+		var statusLength = 451
+		var expectedResponseLength = this.generator.GetResponseFrameLength(statusLength)
+
+		assert this.server.AcceptedRoute3Request() == true
+		assert this.server.GetResponseKind() == 5
+		assert this.server.GetResponseLength() == expectedResponseLength
+	}
+
+	@Test
+	fn AcceptsHttpGetOnCombinedAckGetFrame()
+	{
+		// Some OS TCP stacks combine the three-way handshake ACK with the
+		// first data segment (PSH+ACK, flags 0x18), skipping the ACK-only
+		// frame. The server must promote connState to CONN_ESTABLISHED on
+		// PSH+ACK so the GET request is not silently dropped.
+		this.server.SetBodyConfig(1, 64, 717318)
+
+		var httpGetRoot = "GET / ".Encode()
+
+		var clientMac: byte[6]
+		clientMac[0] = 0x02
+		clientMac[1] = 0x10
+		clientMac[2] = 0x20
+		clientMac[3] = 0x30
+		clientMac[4] = 0x40
+		clientMac[5] = 0x50
+
+		var clientIp: byte[4]
+		clientIp[0] = 0x0A
+		clientIp[1] = 0x00
+		clientIp[2] = 0x00
+		clientIp[3] = 0x02
+
+		var etherTypeIpv4: byte[2]
+		etherTypeIpv4[0] = 0x08
+		etherTypeIpv4[1] = 0x00
+
+		var fixedIpv4TcpHeader: byte[4]
+		fixedIpv4TcpHeader[0] = 0x45
+		fixedIpv4TcpHeader[1] = 0x40
+		fixedIpv4TcpHeader[2] = 0x00
+		fixedIpv4TcpHeader[3] = 0x06
+
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+
+		var clientPort: byte[2]
+		clientPort[0] = 0xC0
+		clientPort[1] = 0x01
+
+		var httpPort: byte[2]
+		httpPort[0] = 0x00
+		httpPort[1] = 0x50
+
+		var clientSeq: byte[4]
+		clientSeq[0] = 0xAA
+		clientSeq[1] = 0xBB
+		clientSeq[2] = 0xCC
+		clientSeq[3] = 0xDD
+
+		// Send SYN
+		var tcpSyn: byte[2]
+		tcpSyn[0] = 0x50
+		tcpSyn[1] = 0x02
+
+		this.LoadEthernetSourceMac(clientMac)
+		this.LoadEtherType(etherTypeIpv4)
+		this.LoadIpv4FixedTcpHeader(fixedIpv4TcpHeader)
+		this.LoadIpv4SourceIp(clientIp)
+		this.LoadIpv4DestinationIp(localIp)
+		this.LoadTcpSourcePort(clientPort)
+		this.LoadTcpDestinationPort(httpPort)
+		this.LoadTcpSeqNum(clientSeq)
+		this.LoadTcpDataOffsetAndFlags(tcpSyn)
+		this.frameIo.SubmitRxFrame()
+
+		this.CopyFrameToServer()
+
+		assert this.server.GetResponseKind() == 3
+
+		// Send PSH+ACK with GET payload — no ACK-only frame in between.
+		var tcpPshAck: byte[2]
+		tcpPshAck[0] = 0x50
+		tcpPshAck[1] = 0x18
+
+		this.LoadTcpDataOffsetAndFlags(tcpPshAck)
+		this.LoadTcpPayload6(httpGetRoot)
+		this.frameIo.SubmitRxFrame()
+
+		this.CopyFrameToServer()
+
+		assert this.server.AcceptedHttpRequest() == true
+		assert this.server.GetResponseKind() == 2
+	}
+}

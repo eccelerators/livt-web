@@ -1,0 +1,82 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * RFC 1945 — Hypertext Transfer Protocol -- HTTP/1.0
+ * https://www.rfc-editor.org/rfc/rfc1945
+ *
+ * Recognizes a minimal Ethernet/IPv4/TCP/HTTP GET request on a configured port.
+ * The path bytes are stored as fields and configured at startup with SetPath().
+ * Defaults to "/" so callers that omit configuration still match the root path.
+ */
+component HttpRequestRecognizer
+{
+	// Fixed payload offset for Ethernet II + 20-byte IPv4 + 20-byte TCP headers.
+	public const TCP_PAYLOAD_OFFSET: int = 54
+
+	ipv4: Ipv4PacketParser
+	tcp: TcpHeaderParser
+	path: byte[7]
+	pathLength: int
+
+	new()
+	{
+		this.ipv4 = new Ipv4PacketParser()
+		this.tcp = new TcpHeaderParser()
+		this.pathLength = 1
+		this.path[0] = 0x2F
+	}
+
+	/**
+	 * Configures the path to match.
+	 * Only the first 7 bytes of path are used; length must be 1-7.
+	 */
+	public fn SetPath(b0: byte, b1: byte, b2: byte, b3: byte, b4: byte, b5: byte, b6: byte, length: int)
+	{
+		this.pathLength = length
+		this.path[0] = b0
+		this.path[1] = b1
+		this.path[2] = b2
+		this.path[3] = b3
+		this.path[4] = b4
+		this.path[5] = b5
+		this.path[6] = b6
+	}
+
+	/**
+	 * Returns true for IPv4/TCP PSH+ACK packets targeting localIp/localPort
+	 * whose TCP payload starts with "GET <path> " for the configured path.
+	 */
+	public fn IsGetRequest(
+		frame: byte[128],
+		localIp: byte[4],
+		localPort: byte[2]) bool
+	{
+		var g = "GET ".Encode()
+
+		return frame[12] == 0x08
+			&& frame[13] == 0x00
+			&& this.ipv4.IsTcpForIpv4(frame, localIp[0], localIp[1], localIp[2], localIp[3])
+			&& this.tcp.IsFixedHeaderForLocalPort(frame, localPort[0], localPort[1])
+			&& this.tcp.IsPshAck(frame)
+			&& frame[TCP_PAYLOAD_OFFSET] == g[0]
+			&& frame[TCP_PAYLOAD_OFFSET + 1] == g[1]
+			&& frame[TCP_PAYLOAD_OFFSET + 2] == g[2]
+			&& frame[TCP_PAYLOAD_OFFSET + 3] == g[3]
+			&& (this.pathLength < 1 || frame[TCP_PAYLOAD_OFFSET + 4] == this.path[0])
+			&& (this.pathLength < 2 || frame[TCP_PAYLOAD_OFFSET + 5] == this.path[1])
+			&& (this.pathLength < 3 || frame[TCP_PAYLOAD_OFFSET + 6] == this.path[2])
+			&& (this.pathLength < 4 || frame[TCP_PAYLOAD_OFFSET + 7] == this.path[3])
+			&& (this.pathLength < 5 || frame[TCP_PAYLOAD_OFFSET + 8] == this.path[4])
+			&& (this.pathLength < 6 || frame[TCP_PAYLOAD_OFFSET + 9] == this.path[5])
+			&& (this.pathLength < 7 || frame[TCP_PAYLOAD_OFFSET + 10] == this.path[6])
+			&& (   (this.pathLength == 1 && frame[TCP_PAYLOAD_OFFSET + 5] == 0x20)
+				|| (this.pathLength == 2 && frame[TCP_PAYLOAD_OFFSET + 6] == 0x20)
+				|| (this.pathLength == 3 && frame[TCP_PAYLOAD_OFFSET + 7] == 0x20)
+				|| (this.pathLength == 4 && frame[TCP_PAYLOAD_OFFSET + 8] == 0x20)
+				|| (this.pathLength == 5 && frame[TCP_PAYLOAD_OFFSET + 9] == 0x20)
+				|| (this.pathLength == 6 && frame[TCP_PAYLOAD_OFFSET + 10] == 0x20)
+				|| (this.pathLength == 7 && frame[TCP_PAYLOAD_OFFSET + 11] == 0x20))
+	}
+}

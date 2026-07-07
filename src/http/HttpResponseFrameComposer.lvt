@@ -1,0 +1,225 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * RFC 1945 — Hypertext Transfer Protocol -- HTTP/1.0
+ * https://www.rfc-editor.org/rfc/rfc1945
+ *
+ * Composes a complete Ethernet/IPv4/TCP/HTTP response frame byte by byte.
+ */
+component HttpResponseFrameComposer
+{
+	ethernet: EthernetFrameBuilder
+	ipv4: Ipv4HeaderBuilder
+	tcp: TcpSegmentBuilder
+	response: HttpResponseGenerator
+
+	new()
+	{
+		this.ethernet = new EthernetFrameBuilder()
+		this.ipv4 = new Ipv4HeaderBuilder()
+		this.tcp = new TcpSegmentBuilder()
+		this.response = new HttpResponseGenerator()
+	}
+
+	/**
+	 * Returns the full response frame length in bytes.
+	 */
+	public fn GetFrameLength(bodyLength: int) int
+	{
+		return this.response.GetResponseFrameLength(bodyLength)
+	}
+
+	/**
+	 * Returns one byte of the complete Ethernet/IPv4/TCP/HTTP response frame.
+	 * Bytes 0–13: Ethernet II header; 14–33: IPv4 header; 34–53: TCP header;
+	 * 54+: HTTP response (header then body bytes from httpBodyByte).
+	 */
+	public fn GetFrameByte(
+		request: byte[128],
+		index: int,
+		bodyLength: int,
+		localMac: byte[6],
+		localIp: byte[4],
+		ipv4Checksum: byte[2],
+		tcpSequence: byte[4],
+		acknowledgment: byte[4],
+		tcpFlags: byte,
+		window: byte[2],
+		tcpChecksum: byte[2],
+		httpBodyByte: logic[8]) logic[8]
+	{
+		var ipv4TotalLength = this.response.GetIpv4TotalLength(bodyLength)
+
+		if (index < 14) {
+			return this.ethernet.GetReplyHeaderByte(request, index, localMac, 0x08, 0x00)
+		}
+
+		if (index == 14) {
+			return this.ipv4.GetResponseHeaderByte(request, 0, ipv4TotalLength, 0x00, 0x01, localIp)
+		}
+
+		if (index == 15) {
+			return this.ipv4.GetResponseHeaderByte(request, 1, ipv4TotalLength, 0x00, 0x01, localIp)
+		}
+
+		if (index == 16) {
+			return this.ipv4.GetResponseHeaderByte(request, 2, ipv4TotalLength, 0x00, 0x01, localIp)
+		}
+
+		if (index == 17) {
+			return this.ipv4.GetResponseHeaderByte(request, 3, ipv4TotalLength, 0x00, 0x01, localIp)
+		}
+
+		if (index == 18) {
+			return this.ipv4.GetResponseHeaderByte(request, 4, ipv4TotalLength, 0x00, 0x01, localIp)
+		}
+
+		if (index == 19) {
+			return this.ipv4.GetResponseHeaderByte(request, 5, ipv4TotalLength, 0x00, 0x01, localIp)
+		}
+
+		if (index == 20) {
+			return this.ipv4.GetResponseHeaderByte(request, 6, ipv4TotalLength, 0x00, 0x01, localIp)
+		}
+
+		if (index == 21) {
+			return this.ipv4.GetResponseHeaderByte(request, 7, ipv4TotalLength, 0x00, 0x01, localIp)
+		}
+
+		if (index == 22) {
+			return this.ipv4.GetResponseHeaderByte(request, 8, ipv4TotalLength, 0x00, 0x01, localIp)
+		}
+
+		if (index == 23) {
+			return this.ipv4.GetResponseHeaderByte(request, 9, ipv4TotalLength, 0x00, 0x01, localIp)
+		}
+
+		if (index == 24) {
+			return ipv4Checksum[0]
+		}
+
+		if (index == 25) {
+			return ipv4Checksum[1]
+		}
+
+		if (index == 26) {
+			return this.ipv4.GetResponseHeaderByte(request, 12, ipv4TotalLength, 0x00, 0x01, localIp)
+		}
+
+		if (index == 27) {
+			return this.ipv4.GetResponseHeaderByte(request, 13, ipv4TotalLength, 0x00, 0x01, localIp)
+		}
+
+		if (index == 28) {
+			return this.ipv4.GetResponseHeaderByte(request, 14, ipv4TotalLength, 0x00, 0x01, localIp)
+		}
+
+		if (index == 29) {
+			return this.ipv4.GetResponseHeaderByte(request, 15, ipv4TotalLength, 0x00, 0x01, localIp)
+		}
+
+		if (index == 30) {
+			return this.ipv4.GetResponseHeaderByte(request, 16, ipv4TotalLength, 0x00, 0x01, localIp)
+		}
+
+		if (index == 31) {
+			return this.ipv4.GetResponseHeaderByte(request, 17, ipv4TotalLength, 0x00, 0x01, localIp)
+		}
+
+		if (index == 32) {
+			return this.ipv4.GetResponseHeaderByte(request, 18, ipv4TotalLength, 0x00, 0x01, localIp)
+		}
+
+		if (index == 33) {
+			return this.ipv4.GetResponseHeaderByte(request, 19, ipv4TotalLength, 0x00, 0x01, localIp)
+		}
+
+		if (index == 34) {
+			return this.tcp.GetResponseHeaderByte(request, 0, tcpSequence, acknowledgment, tcpFlags, window, tcpChecksum)
+		}
+
+		if (index == 35) {
+			return this.tcp.GetResponseHeaderByte(request, 1, tcpSequence, acknowledgment, tcpFlags, window, tcpChecksum)
+		}
+
+		if (index == 36) {
+			return this.tcp.GetResponseHeaderByte(request, 2, tcpSequence, acknowledgment, tcpFlags, window, tcpChecksum)
+		}
+
+		if (index == 37) {
+			return this.tcp.GetResponseHeaderByte(request, 3, tcpSequence, acknowledgment, tcpFlags, window, tcpChecksum)
+		}
+
+		if (index == 38) {
+			return this.tcp.GetResponseHeaderByte(request, 4, tcpSequence, acknowledgment, tcpFlags, window, tcpChecksum)
+		}
+
+		if (index == 39) {
+			return this.tcp.GetResponseHeaderByte(request, 5, tcpSequence, acknowledgment, tcpFlags, window, tcpChecksum)
+		}
+
+		if (index == 40) {
+			return this.tcp.GetResponseHeaderByte(request, 6, tcpSequence, acknowledgment, tcpFlags, window, tcpChecksum)
+		}
+
+		if (index == 41) {
+			return this.tcp.GetResponseHeaderByte(request, 7, tcpSequence, acknowledgment, tcpFlags, window, tcpChecksum)
+		}
+
+		if (index == 42) {
+			return this.tcp.GetResponseHeaderByte(request, 8, tcpSequence, acknowledgment, tcpFlags, window, tcpChecksum)
+		}
+
+		if (index == 43) {
+			return this.tcp.GetResponseHeaderByte(request, 9, tcpSequence, acknowledgment, tcpFlags, window, tcpChecksum)
+		}
+
+		if (index == 44) {
+			return this.tcp.GetResponseHeaderByte(request, 10, tcpSequence, acknowledgment, tcpFlags, window, tcpChecksum)
+		}
+
+		if (index == 45) {
+			return this.tcp.GetResponseHeaderByte(request, 11, tcpSequence, acknowledgment, tcpFlags, window, tcpChecksum)
+		}
+
+		if (index == 46) {
+			return this.tcp.GetResponseHeaderByte(request, 12, tcpSequence, acknowledgment, tcpFlags, window, tcpChecksum)
+		}
+
+		if (index == 47) {
+			return this.tcp.GetResponseHeaderByte(request, 13, tcpSequence, acknowledgment, tcpFlags, window, tcpChecksum)
+		}
+
+		if (index == 48) {
+			return this.tcp.GetResponseHeaderByte(request, 14, tcpSequence, acknowledgment, tcpFlags, window, tcpChecksum)
+		}
+
+		if (index == 49) {
+			return this.tcp.GetResponseHeaderByte(request, 15, tcpSequence, acknowledgment, tcpFlags, window, tcpChecksum)
+		}
+
+		if (index == 50) {
+			return this.tcp.GetResponseHeaderByte(request, 16, tcpSequence, acknowledgment, tcpFlags, window, tcpChecksum)
+		}
+
+		if (index == 51) {
+			return this.tcp.GetResponseHeaderByte(request, 17, tcpSequence, acknowledgment, tcpFlags, window, tcpChecksum)
+		}
+
+		if (index == 52) {
+			return this.tcp.GetResponseHeaderByte(request, 18, tcpSequence, acknowledgment, tcpFlags, window, tcpChecksum)
+		}
+
+		if (index == 53) {
+			return this.tcp.GetResponseHeaderByte(request, 19, tcpSequence, acknowledgment, tcpFlags, window, tcpChecksum)
+		}
+
+		if (index < this.GetFrameLength(bodyLength)) {
+			return this.response.GetResponseByteAtFrameOffset(index, bodyLength, httpBodyByte)
+		}
+
+		return 0x00
+	}
+}

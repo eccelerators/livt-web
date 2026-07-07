@@ -1,0 +1,227 @@
+namespace Livt.Web.Tests.Http
+
+using Livt.Web.Http
+using Livt.Net
+
+@Test
+component HttpRequestRecognizerTest
+{
+	recognizer: HttpRequestRecognizer
+
+	new()
+	{
+		this.recognizer = new HttpRequestRecognizer()
+	}
+
+	@Test
+	fn AcceptsMinimalIpv4TcpHttpGetRootRequest()
+	{
+		var frame: byte[128]
+		var httpGetRoot = "GET / ".Encode()
+		var etherTypeIpv4: byte[2]
+		etherTypeIpv4[0] = 0x08
+		etherTypeIpv4[1] = 0x00
+		var fixedIpv4TcpHeader: byte[4]
+		fixedIpv4TcpHeader[0] = 0x45
+		fixedIpv4TcpHeader[1] = 0x40
+		fixedIpv4TcpHeader[2] = 0x00
+		fixedIpv4TcpHeader[3] = 0x06
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+		var localPort: byte[2]
+		localPort[0] = 0x00
+		localPort[1] = 0x50
+		var tcpPshAck: byte[2]
+		tcpPshAck[0] = 0x50
+		tcpPshAck[1] = 0x18
+
+		frame[12] = etherTypeIpv4[0]
+		frame[13] = etherTypeIpv4[1]
+		frame[14] = fixedIpv4TcpHeader[0]
+		frame[20] = fixedIpv4TcpHeader[1]
+		frame[21] = fixedIpv4TcpHeader[2]
+		frame[23] = fixedIpv4TcpHeader[3]
+		frame[30] = localIp[0]
+		frame[31] = localIp[1]
+		frame[32] = localIp[2]
+		frame[33] = localIp[3]
+		frame[36] = localPort[0]
+		frame[37] = localPort[1]
+		frame[46] = tcpPshAck[0]
+		frame[47] = tcpPshAck[1]
+		frame[54] = httpGetRoot[0]
+		frame[55] = httpGetRoot[1]
+		frame[56] = httpGetRoot[2]
+		frame[57] = httpGetRoot[3]
+		frame[58] = httpGetRoot[4]
+		frame[59] = httpGetRoot[5]
+
+		assert this.recognizer.IsGetRequest(frame, localIp, localPort) == true
+	}
+
+	@Test
+	fn RejectsWrongEndpointOrPayload()
+	{
+		var frame: byte[128]
+		var httpGetRoot = "GET / ".Encode()
+		var etherTypeIpv4: byte[2]
+		etherTypeIpv4[0] = 0x08
+		etherTypeIpv4[1] = 0x00
+		var fixedIpv4TcpHeader: byte[4]
+		fixedIpv4TcpHeader[0] = 0x45
+		fixedIpv4TcpHeader[1] = 0x40
+		fixedIpv4TcpHeader[2] = 0x00
+		fixedIpv4TcpHeader[3] = 0x06
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+		var wrongIp: byte[4]
+		wrongIp[0] = 0x0A
+		wrongIp[1] = 0x00
+		wrongIp[2] = 0x00
+		wrongIp[3] = 0x02
+		var localPort: byte[2]
+		localPort[0] = 0x00
+		localPort[1] = 0x50
+		var wrongPort: byte[2]
+		wrongPort[0] = 0x01
+		wrongPort[1] = 0xBB
+		var tcpPshAck: byte[2]
+		tcpPshAck[0] = 0x50
+		tcpPshAck[1] = 0x18
+
+		frame[12] = etherTypeIpv4[0]
+		frame[13] = etherTypeIpv4[1]
+		frame[14] = fixedIpv4TcpHeader[0]
+		frame[20] = fixedIpv4TcpHeader[1]
+		frame[21] = fixedIpv4TcpHeader[2]
+		frame[23] = fixedIpv4TcpHeader[3]
+		frame[30] = localIp[0]
+		frame[31] = localIp[1]
+		frame[32] = localIp[2]
+		frame[33] = localIp[3]
+		frame[36] = localPort[0]
+		frame[37] = localPort[1]
+		frame[46] = tcpPshAck[0]
+		frame[47] = tcpPshAck[1]
+		frame[54] = httpGetRoot[0]
+		frame[55] = httpGetRoot[1]
+		frame[56] = httpGetRoot[2]
+		frame[57] = httpGetRoot[3]
+		frame[58] = httpGetRoot[4]
+		frame[59] = httpGetRoot[5]
+
+		assert this.recognizer.IsGetRequest(frame, wrongIp, localPort) == false
+		assert this.recognizer.IsGetRequest(frame, localIp, wrongPort) == false
+
+		frame[59] = 0x48
+		assert this.recognizer.IsGetRequest(frame, localIp, localPort) == false
+	}
+
+	@Test
+	fn AcceptsConfiguredStatusPath()
+	{
+		this.recognizer.SetPath(0x2F, 0x73, 0x74, 0x61, 0x74, 0x75, 0x73, 7)
+
+		var frame: byte[128]
+		var httpGetStatus = "GET /status ".Encode()
+		var etherTypeIpv4: byte[2]
+		etherTypeIpv4[0] = 0x08
+		etherTypeIpv4[1] = 0x00
+		var fixedIpv4TcpHeader: byte[4]
+		fixedIpv4TcpHeader[0] = 0x45
+		fixedIpv4TcpHeader[1] = 0x40
+		fixedIpv4TcpHeader[2] = 0x00
+		fixedIpv4TcpHeader[3] = 0x06
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+		var localPort: byte[2]
+		localPort[0] = 0x00
+		localPort[1] = 0x50
+		var tcpPshAck: byte[2]
+		tcpPshAck[0] = 0x50
+		tcpPshAck[1] = 0x18
+
+		frame[12] = etherTypeIpv4[0]
+		frame[13] = etherTypeIpv4[1]
+		frame[14] = fixedIpv4TcpHeader[0]
+		frame[20] = fixedIpv4TcpHeader[1]
+		frame[21] = fixedIpv4TcpHeader[2]
+		frame[23] = fixedIpv4TcpHeader[3]
+		frame[30] = localIp[0]
+		frame[31] = localIp[1]
+		frame[32] = localIp[2]
+		frame[33] = localIp[3]
+		frame[36] = localPort[0]
+		frame[37] = localPort[1]
+		frame[46] = tcpPshAck[0]
+		frame[47] = tcpPshAck[1]
+
+		for (var i = 0; i < 12; i++)
+		{
+			frame[54 + i] = httpGetStatus[i]
+		}
+
+		assert this.recognizer.IsGetRequest(frame, localIp, localPort) == true
+	}
+
+	@Test
+	fn RejectsNonHttpOrFragmentedFrames()
+	{
+		var frame: byte[128]
+		var httpGetRoot = "GET / ".Encode()
+		var etherTypeArp: byte[2]
+		etherTypeArp[0] = 0x08
+		etherTypeArp[1] = 0x06
+		var fragmentedIpv4TcpHeader: byte[4]
+		fragmentedIpv4TcpHeader[0] = 0x45
+		fragmentedIpv4TcpHeader[1] = 0x20
+		fragmentedIpv4TcpHeader[2] = 0x01
+		fragmentedIpv4TcpHeader[3] = 0x06
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+		var localPort: byte[2]
+		localPort[0] = 0x00
+		localPort[1] = 0x50
+		var tcpPshAck: byte[2]
+		tcpPshAck[0] = 0x50
+		tcpPshAck[1] = 0x18
+
+		frame[12] = etherTypeArp[0]
+		frame[13] = etherTypeArp[1]
+		frame[14] = fragmentedIpv4TcpHeader[0]
+		frame[20] = fragmentedIpv4TcpHeader[1]
+		frame[21] = fragmentedIpv4TcpHeader[2]
+		frame[23] = fragmentedIpv4TcpHeader[3]
+		frame[30] = localIp[0]
+		frame[31] = localIp[1]
+		frame[32] = localIp[2]
+		frame[33] = localIp[3]
+		frame[36] = localPort[0]
+		frame[37] = localPort[1]
+		frame[46] = tcpPshAck[0]
+		frame[47] = tcpPshAck[1]
+		frame[54] = httpGetRoot[0]
+		frame[55] = httpGetRoot[1]
+		frame[56] = httpGetRoot[2]
+		frame[57] = httpGetRoot[3]
+		frame[58] = httpGetRoot[4]
+		frame[59] = httpGetRoot[5]
+
+		assert this.recognizer.IsGetRequest(frame, localIp, localPort) == false
+
+		frame[13] = 0x00
+		assert this.recognizer.IsGetRequest(frame, localIp, localPort) == false
+	}
+}

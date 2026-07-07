@@ -1,0 +1,120 @@
+namespace Livt.Web.Tests.Http
+
+using Livt.Web.Http
+using Livt.Net
+
+@Test
+component HttpGetRecognizerTest
+{
+	recognizer: HttpGetRecognizer
+
+	new()
+	{
+		this.recognizer = new HttpGetRecognizer()
+	}
+
+	@Test
+	fn DetectsGetRootByDefault()
+	{
+		var frame: byte[128]
+		var httpGetRoot = "GET / ".Encode()
+
+		frame[54] = httpGetRoot[0]
+		frame[55] = httpGetRoot[1]
+		frame[56] = httpGetRoot[2]
+		frame[57] = httpGetRoot[3]
+		frame[58] = httpGetRoot[4]
+		frame[59] = httpGetRoot[5]
+
+		assert this.recognizer.IsGetRequest(frame, 54) == true
+	}
+
+	@Test
+	fn RejectsOtherPathByDefault()
+	{
+		var frame: byte[128]
+		var httpGetOtherPath = "GET /x".Encode()
+
+		frame[54] = httpGetOtherPath[0]
+		frame[55] = httpGetOtherPath[1]
+		frame[56] = httpGetOtherPath[2]
+		frame[57] = httpGetOtherPath[3]
+		frame[58] = httpGetOtherPath[4]
+		frame[59] = httpGetOtherPath[5]
+
+		assert this.recognizer.IsGetRequest(frame, 54) == false
+	}
+
+	@Test
+	fn RejectsPost()
+	{
+		var frame: byte[128]
+		var httpPostRoot = "POST /".Encode()
+
+		frame[54] = httpPostRoot[0]
+		frame[55] = httpPostRoot[1]
+		frame[56] = httpPostRoot[2]
+		frame[57] = httpPostRoot[3]
+		frame[58] = httpPostRoot[4]
+		frame[59] = httpPostRoot[5]
+
+		assert this.recognizer.IsGetRequest(frame, 54) == false
+	}
+
+	@Test
+	fn DetectsGetAboutAfterSetPath()
+	{
+		this.recognizer.SetPath(0x2F, 0x61, 0x62, 0x6F, 0x75, 0x74, 0x00, 6)
+
+		var frame: byte[128]
+		var httpGetAbout = "GET /about ".Encode()
+
+		frame[54] = httpGetAbout[0]
+		frame[55] = httpGetAbout[1]
+		frame[56] = httpGetAbout[2]
+		frame[57] = httpGetAbout[3]
+		frame[58] = httpGetAbout[4]
+		frame[59] = httpGetAbout[5]
+		frame[60] = httpGetAbout[6]
+		frame[61] = httpGetAbout[7]
+		frame[62] = httpGetAbout[8]
+		frame[63] = httpGetAbout[9]
+		frame[64] = httpGetAbout[10]
+
+		assert this.recognizer.IsGetRequest(frame, 54) == true
+	}
+
+	@Test
+	fn RejectsGetRootAfterSetPath()
+	{
+		this.recognizer.SetPath(0x2F, 0x61, 0x62, 0x6F, 0x75, 0x74, 0x00, 6)
+
+		var frame: byte[128]
+		var httpGetRoot = "GET / ".Encode()
+
+		frame[54] = httpGetRoot[0]
+		frame[55] = httpGetRoot[1]
+		frame[56] = httpGetRoot[2]
+		frame[57] = httpGetRoot[3]
+		frame[58] = httpGetRoot[4]
+		frame[59] = httpGetRoot[5]
+
+		assert this.recognizer.IsGetRequest(frame, 54) == false
+	}
+
+	@Test
+	fn DetectsGetStatusAfterSetPath()
+	{
+		this.recognizer.SetPath(0x2F, 0x73, 0x74, 0x61, 0x74, 0x75, 0x73, 7)
+
+		var frame: byte[128]
+		var httpGetStatus = "GET /status ".Encode()
+
+		for (var i = 0; i < 12; i++)
+		{
+			frame[54 + i] = httpGetStatus[i]
+		}
+
+		assert this.recognizer.IsGetRequest(frame, 54) == true
+	}
+}

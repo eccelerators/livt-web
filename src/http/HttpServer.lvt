@@ -1,0 +1,714 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * Coordinates the narrow IPv4/TCP/HTTP request-response subset.
+ */
+component HttpServer
+{
+	// No response has been selected.
+	public const RESPONSE_NONE: int = 0
+	// The selected response is an HTTP response frame.
+	public const RESPONSE_HTTP: int = 2
+	// The selected response is a TCP SYN-ACK.
+	public const RESPONSE_SYN_ACK: int = 3
+	// The selected response is an HTTP response for route 2.
+	public const RESPONSE_HTTP_ROUTE2: int = 4
+	// The selected response is an HTTP response for route 3.
+	public const RESPONSE_HTTP_ROUTE3: int = 5
+	// Number of bytes in an Ethernet/IPv4/TCP SYN-ACK, padded to Ethernet minimum.
+	public const SYN_ACK_RESPONSE_LENGTH: int = 60
+	// TCP connection state: no active connection.
+	public const CONN_CLOSED: int = 0
+	// TCP connection state: SYN received, SYN-ACK sent, waiting for ACK.
+	public const CONN_SYN_RECEIVED: int = 1
+	// TCP connection state: three-way handshake complete.
+	public const CONN_ESTABLISHED: int = 2
+
+	rxFrame128: byte[128]
+	responseKind: int
+	responseLength: int
+	connState: int
+	localMac: byte[6]
+	localIp: byte[4]
+	localPort: byte[2]
+	httpBodyLength: int
+	httpBodyChecksumWordSum: int
+	route2BodyLength: int
+	route2BodyChecksumWordSum: int
+	route3BodyLength: int
+	route3BodyChecksumWordSum: int
+	responseBodyLength: int
+	responseBodyChecksumWordSum: int
+	route2Configured: bool
+	route3Configured: bool
+	ackNum0: byte
+	ackNum1: byte
+	ackNum2: byte
+	ackNum3: byte
+	ipv4CsHigh: byte
+	ipv4CsLow: byte
+	tcpCsHigh: byte
+	tcpCsLow: byte
+	httpAckNum0: byte
+	httpAckNum1: byte
+	httpAckNum2: byte
+	httpAckNum3: byte
+	httpIpv4CsHigh: byte
+	httpIpv4CsLow: byte
+	httpTcpCsHigh: byte
+	httpTcpCsLow: byte
+
+	r1b0: byte
+	r1b1: byte
+	r1b2: byte
+	r1b3: byte
+	r1b4: byte
+	r1b5: byte
+	r1b6: byte
+	r1len: int
+	r2b0: byte
+	r2b1: byte
+	r2b2: byte
+	r2b3: byte
+	r2b4: byte
+	r2b5: byte
+	r2b6: byte
+	r2len: int
+	r3b0: byte
+	r3b1: byte
+	r3b2: byte
+	r3b3: byte
+	r3b4: byte
+	r3b5: byte
+	r3b6: byte
+	r3len: int
+	request: HttpRequestRecognizer
+	request2: HttpRequestRecognizer
+	request3: HttpRequestRecognizer
+	response: HttpResponseFrameComposer
+	responseGenerator: HttpResponseGenerator
+	conn: TcpConnectionRecognizer
+	synAckComposer: TcpSynAckFrameComposer
+	ipv4Calc: Ipv4HeaderChecksum
+	tcpCalc: TcpChecksum
+
+	new(
+		localMac: byte[6],
+		localIp: byte[4],
+		localPort: byte[2])
+	{
+		this.localMac[0] = localMac[0]
+		this.localMac[1] = localMac[1]
+		this.localMac[2] = localMac[2]
+		this.localMac[3] = localMac[3]
+		this.localMac[4] = localMac[4]
+		this.localMac[5] = localMac[5]
+		this.localIp[0] = localIp[0]
+		this.localIp[1] = localIp[1]
+		this.localIp[2] = localIp[2]
+		this.localIp[3] = localIp[3]
+		this.localPort[0] = localPort[0]
+		this.localPort[1] = localPort[1]
+		this.httpBodyLength = 0
+		this.httpBodyChecksumWordSum = 0
+		this.route2BodyLength = 0
+		this.route2BodyChecksumWordSum = 0
+		this.route3BodyLength = 0
+		this.route3BodyChecksumWordSum = 0
+		this.responseBodyLength = 0
+		this.responseBodyChecksumWordSum = 0
+		this.route2Configured = false
+		this.route3Configured = false
+		this.r1b0 = 0x2F
+		this.r1b1 = 0x00
+		this.r1b2 = 0x00
+		this.r1b3 = 0x00
+		this.r1b4 = 0x00
+		this.r1b5 = 0x00
+		this.r1b6 = 0x00
+		this.r1len = 1
+		this.r2b0 = 0x00
+		this.r2b1 = 0x00
+		this.r2b2 = 0x00
+		this.r2b3 = 0x00
+		this.r2b4 = 0x00
+		this.r2b5 = 0x00
+		this.r2b6 = 0x00
+		this.r2len = 0
+		this.r3b0 = 0x00
+		this.r3b1 = 0x00
+		this.r3b2 = 0x00
+		this.r3b3 = 0x00
+		this.r3b4 = 0x00
+		this.r3b5 = 0x00
+		this.r3b6 = 0x00
+		this.r3len = 0
+
+		this.connState = CONN_CLOSED
+		this.ackNum0 = 0x00
+		this.ackNum1 = 0x00
+		this.ackNum2 = 0x00
+		this.ackNum3 = 0x00
+		this.ipv4CsHigh = 0x00
+		this.ipv4CsLow = 0x00
+		this.tcpCsHigh = 0x00
+		this.tcpCsLow = 0x00
+		this.httpAckNum0 = 0x00
+		this.httpAckNum1 = 0x00
+		this.httpAckNum2 = 0x00
+		this.httpAckNum3 = 0x00
+		this.httpIpv4CsHigh = 0x00
+		this.httpIpv4CsLow = 0x00
+		this.httpTcpCsHigh = 0x00
+		this.httpTcpCsLow = 0x00
+
+		this.request = new HttpRequestRecognizer()
+		this.request2 = new HttpRequestRecognizer()
+		this.request3 = new HttpRequestRecognizer()
+		this.response = new HttpResponseFrameComposer()
+		this.responseGenerator = new HttpResponseGenerator()
+		this.conn = new TcpConnectionRecognizer()
+		this.synAckComposer = new TcpSynAckFrameComposer()
+		this.ipv4Calc = new Ipv4HeaderChecksum()
+		this.tcpCalc = new TcpChecksum()
+	}
+
+	/**
+	 * Sets the HTTP body length and checksum word sum for a route slot.
+	 * Routes are generic HTTP route slots 1, 2, and 3.
+	 * Must be called before the first HTTP response frame is emitted.
+	 */
+	public fn SetBodyConfig(route: int, length: int, checksumWordSum: int)
+	{
+		if (route == 1)
+		{
+			this.httpBodyLength = length
+			this.httpBodyChecksumWordSum = checksumWordSum
+		}
+		if (route == 2)
+		{
+			this.route2BodyLength = length
+			this.route2BodyChecksumWordSum = checksumWordSum
+		}
+		if (route == 3)
+		{
+			this.route3BodyLength = length
+			this.route3BodyChecksumWordSum = checksumWordSum
+		}
+	}
+
+	/**
+	 * Configures the path matched by a route. Use route=1 for the primary path,
+	 * route=2 to activate and configure the secondary route.
+	 * Path IDs: 1 selects "/", 2 selects the second built-in path, 3 selects the third built-in path.
+	 */
+	public fn SetRoutePath(route: int, path: int)
+	{
+		if (path == 1)
+		{
+			if (route == 1)
+			{
+				this.r1b0 = 0x2F
+				this.r1b1 = 0x00
+				this.r1b2 = 0x00
+					this.r1b3 = 0x00
+					this.r1b4 = 0x00
+					this.r1b5 = 0x00
+					this.r1b6 = 0x00
+					this.r1len = 1
+					this.request.SetPath(this.r1b0, this.r1b1, this.r1b2, this.r1b3, this.r1b4, this.r1b5, this.r1b6, this.r1len)
+				}
+				if (route == 2)
+				{
+				this.r2b0 = 0x2F
+				this.r2b1 = 0x00
+				this.r2b2 = 0x00
+					this.r2b3 = 0x00
+					this.r2b4 = 0x00
+					this.r2b5 = 0x00
+					this.r2b6 = 0x00
+					this.r2len = 1
+					this.request2.SetPath(this.r2b0, this.r2b1, this.r2b2, this.r2b3, this.r2b4, this.r2b5, this.r2b6, this.r2len)
+					this.route2Configured = true
+				}
+				if (route == 3)
+				{
+					this.r3b0 = 0x2F
+					this.r3b1 = 0x00
+					this.r3b2 = 0x00
+					this.r3b3 = 0x00
+					this.r3b4 = 0x00
+					this.r3b5 = 0x00
+					this.r3b6 = 0x00
+					this.r3len = 1
+					this.request3.SetPath(this.r3b0, this.r3b1, this.r3b2, this.r3b3, this.r3b4, this.r3b5, this.r3b6, this.r3len)
+					this.route3Configured = true
+				}
+			}
+			if (path == 2)
+			{
+			if (route == 1)
+			{
+				this.r1b0 = 0x2F
+				this.r1b1 = 0x61
+				this.r1b2 = 0x62
+					this.r1b3 = 0x6F
+					this.r1b4 = 0x75
+					this.r1b5 = 0x74
+					this.r1b6 = 0x00
+					this.r1len = 6
+					this.request.SetPath(this.r1b0, this.r1b1, this.r1b2, this.r1b3, this.r1b4, this.r1b5, this.r1b6, this.r1len)
+				}
+				if (route == 2)
+				{
+				this.r2b0 = 0x2F
+				this.r2b1 = 0x61
+				this.r2b2 = 0x62
+					this.r2b3 = 0x6F
+					this.r2b4 = 0x75
+					this.r2b5 = 0x74
+					this.r2b6 = 0x00
+					this.r2len = 6
+					this.request2.SetPath(this.r2b0, this.r2b1, this.r2b2, this.r2b3, this.r2b4, this.r2b5, this.r2b6, this.r2len)
+					this.route2Configured = true
+				}
+				if (route == 3)
+				{
+					this.r3b0 = 0x2F
+					this.r3b1 = 0x61
+					this.r3b2 = 0x62
+					this.r3b3 = 0x6F
+					this.r3b4 = 0x75
+					this.r3b5 = 0x74
+					this.r3b6 = 0x00
+					this.r3len = 6
+					this.request3.SetPath(this.r3b0, this.r3b1, this.r3b2, this.r3b3, this.r3b4, this.r3b5, this.r3b6, this.r3len)
+					this.route3Configured = true
+				}
+			}
+			if (path == 3)
+			{
+				if (route == 1)
+				{
+					this.r1b0 = 0x2F
+					this.r1b1 = 0x73
+					this.r1b2 = 0x74
+					this.r1b3 = 0x61
+					this.r1b4 = 0x74
+					this.r1b5 = 0x75
+					this.r1b6 = 0x73
+					this.r1len = 7
+					this.request.SetPath(this.r1b0, this.r1b1, this.r1b2, this.r1b3, this.r1b4, this.r1b5, this.r1b6, this.r1len)
+				}
+				if (route == 2)
+				{
+					this.r2b0 = 0x2F
+					this.r2b1 = 0x73
+					this.r2b2 = 0x74
+					this.r2b3 = 0x61
+					this.r2b4 = 0x74
+					this.r2b5 = 0x75
+					this.r2b6 = 0x73
+					this.r2len = 7
+					this.request2.SetPath(this.r2b0, this.r2b1, this.r2b2, this.r2b3, this.r2b4, this.r2b5, this.r2b6, this.r2len)
+					this.route2Configured = true
+				}
+				if (route == 3)
+				{
+					this.r3b0 = 0x2F
+					this.r3b1 = 0x73
+					this.r3b2 = 0x74
+					this.r3b3 = 0x61
+					this.r3b4 = 0x74
+					this.r3b5 = 0x75
+					this.r3b6 = 0x73
+					this.r3len = 7
+					this.request3.SetPath(this.r3b0, this.r3b1, this.r3b2, this.r3b3, this.r3b4, this.r3b5, this.r3b6, this.r3len)
+					this.route3Configured = true
+				}
+			}
+		}
+
+	/**
+	 * Clears previous response state before loading a new received frame.
+	 */
+	public fn BeginFrame()
+	{
+		this.responseKind = RESPONSE_NONE
+		this.responseLength = 0
+	}
+
+	/**
+	 * Copies one received Ethernet-frame byte into the server frame buffers.
+	 */
+	public fn LoadRxByte(index: int, value: byte)
+	{
+		this.rxFrame128[index] = value
+	}
+
+	fn ByteToInt(value: byte) int
+	{
+		var result: int = value
+		return result
+	}
+
+	/**
+	 * Classifies the loaded frame and selects the response kind and length.
+	 * Handles SYN (TCP handshake) and PSH+ACK GET / (HTTP response).
+	 */
+	public fn HandleFrame()
+	{
+		this.responseKind = RESPONSE_NONE
+		this.responseLength = 0
+
+		if (this.conn.IsSynRequest(this.rxFrame128, this.localIp, this.localPort))
+		{
+			var s0: int = this.ByteToInt(this.rxFrame128[38])
+			var s1: int = this.ByteToInt(this.rxFrame128[39])
+			var s2: int = this.ByteToInt(this.rxFrame128[40])
+			var s3: int = this.ByteToInt(this.rxFrame128[41])
+
+			var a3: int = s3 + 1
+			var carry3: int = a3 / 256
+			var a3mod: int = a3 % 256
+			var a2: int = s2 + carry3
+			var carry2: int = a2 / 256
+			var a2mod: int = a2 % 256
+			var a1: int = s1 + carry2
+			var carry1: int = a1 / 256
+			var a1mod: int = a1 % 256
+			var a0: int = s0 + carry1
+			var a0mod: int = a0 % 256
+
+			var ack0b: byte = a0mod as byte
+			var ack1b: byte = a1mod as byte
+			var ack2b: byte = a2mod as byte
+			var ack3b: byte = a3mod as byte
+
+			this.ackNum0 = ack0b
+			this.ackNum1 = ack1b
+			this.ackNum2 = ack2b
+			this.ackNum3 = ack3b
+
+			var remoteIp0: int = this.ByteToInt(this.rxFrame128[26])
+			var remoteIp1: int = this.ByteToInt(this.rxFrame128[27])
+			var remoteIp2: int = this.ByteToInt(this.rxFrame128[28])
+			var remoteIp3: int = this.ByteToInt(this.rxFrame128[29])
+
+			var remotePortHigh: int = this.ByteToInt(this.rxFrame128[34])
+			var remotePortLow: int = this.ByteToInt(this.rxFrame128[35])
+
+			var localIp0i: int = this.ByteToInt(this.localIp[0])
+			var localIp1i: int = this.ByteToInt(this.localIp[1])
+			var localIp2i: int = this.ByteToInt(this.localIp[2])
+			var localIp3i: int = this.ByteToInt(this.localIp[3])
+
+			var localPortHighI: int = this.ByteToInt(this.localPort[0])
+			var localPortLowI: int = this.ByteToInt(this.localPort[1])
+
+			var ipv4Cs: int = this.ipv4Calc.CalculateFixedTcpHeaderChecksum(0, 40, 0, 2, localIp0i, localIp1i, localIp2i, localIp3i, remoteIp0, remoteIp1, remoteIp2, remoteIp3)
+			var ipv4CsHighI: int = this.ipv4Calc.GetHighByte(ipv4Cs)
+			var ipv4CsLowI: int = this.ipv4Calc.GetLowByte(ipv4Cs)
+			var ipv4CsHighB: byte = ipv4CsHighI as byte
+			var ipv4CsLowB: byte = ipv4CsLowI as byte
+			this.ipv4CsHigh = ipv4CsHighB
+			this.ipv4CsLow = ipv4CsLowB
+
+			var tcpCs: int = this.tcpCalc.CalculateFixedHeaderChecksum(localIp0i, localIp1i, localIp2i, localIp3i, remoteIp0, remoteIp1, remoteIp2, remoteIp3, localPortHighI, localPortLowI, remotePortHigh, remotePortLow, 0, 0, 0, 1, a0mod, a1mod, a2mod, a3mod, 18, 4, 0)
+			var tcpCsHighI: int = this.tcpCalc.GetHighByte(tcpCs)
+			var tcpCsLowI: int = this.tcpCalc.GetLowByte(tcpCs)
+			var tcpCsHighB: byte = tcpCsHighI as byte
+			var tcpCsLowB: byte = tcpCsLowI as byte
+			this.tcpCsHigh = tcpCsHighB
+			this.tcpCsLow = tcpCsLowB
+
+			this.connState = CONN_SYN_RECEIVED
+			this.responseKind = RESPONSE_SYN_ACK
+			this.responseLength = SYN_ACK_RESPONSE_LENGTH
+			return
+		}
+
+		if (this.connState == CONN_SYN_RECEIVED)
+		{
+			if (this.conn.IsAckOnlyPacket(this.rxFrame128, this.localIp, this.localPort))
+			{
+				this.connState = CONN_ESTABLISHED
+			}
+			if (this.conn.IsPshAckPacket(this.rxFrame128, this.localIp, this.localPort))
+			{
+				this.connState = CONN_ESTABLISHED
+			}
+		}
+
+		var httpRouteAccepted = false
+		var httpBodyLengthFwd: int = 0
+		var httpBodyChecksumFwd: int = 0
+
+		if (this.connState == CONN_ESTABLISHED)
+		{
+				if (this.request.IsGetRequest(this.rxFrame128, this.localIp, this.localPort))
+				{
+						this.responseBodyLength = this.httpBodyLength
+						httpBodyLengthFwd = this.httpBodyLength
+						httpBodyChecksumFwd = this.httpBodyChecksumWordSum
+						this.responseBodyChecksumWordSum = this.httpBodyChecksumWordSum
+						this.responseKind = RESPONSE_HTTP
+						httpRouteAccepted = true
+				}
+
+					if (this.route2Configured == true)
+					{
+							if (this.request2.IsGetRequest(this.rxFrame128, this.localIp, this.localPort))
+							{
+									this.responseBodyLength = this.route2BodyLength
+									this.responseBodyChecksumWordSum = this.route2BodyChecksumWordSum
+									this.responseKind = RESPONSE_HTTP_ROUTE2
+									httpBodyLengthFwd = this.route2BodyLength
+									httpBodyChecksumFwd = this.route2BodyChecksumWordSum
+									httpRouteAccepted = true
+							}
+					}
+
+					if (this.route3Configured == true)
+					{
+							if (this.request3.IsGetRequest(this.rxFrame128, this.localIp, this.localPort))
+							{
+									this.responseBodyLength = this.route3BodyLength
+									this.responseBodyChecksumWordSum = this.route3BodyChecksumWordSum
+									this.responseKind = RESPONSE_HTTP_ROUTE3
+									httpBodyLengthFwd = this.route3BodyLength
+									httpBodyChecksumFwd = this.route3BodyChecksumWordSum
+									httpRouteAccepted = true
+							}
+					}
+			}
+
+		if (httpRouteAccepted == true)
+		{
+			var requestTotalLengthHigh: int = this.ByteToInt(this.rxFrame128[16])
+			var requestTotalLengthLow: int = this.ByteToInt(this.rxFrame128[17])
+			var requestTotalLength: int = requestTotalLengthHigh * 256 + requestTotalLengthLow
+			var requestPayloadLength: int = requestTotalLength - 40
+
+			if (requestPayloadLength < 1)
+			{
+				requestPayloadLength = 6
+			}
+
+			var httpS0: int = this.ByteToInt(this.rxFrame128[38])
+			var httpS1: int = this.ByteToInt(this.rxFrame128[39])
+			var httpS2: int = this.ByteToInt(this.rxFrame128[40])
+			var httpS3: int = this.ByteToInt(this.rxFrame128[41])
+
+			var httpA3: int = httpS3 + requestPayloadLength
+			var httpCarry3: int = httpA3 / 256
+			var httpA3mod: int = httpA3 % 256
+			var httpA2: int = httpS2 + httpCarry3
+			var httpCarry2: int = httpA2 / 256
+			var httpA2mod: int = httpA2 % 256
+			var httpA1: int = httpS1 + httpCarry2
+			var httpCarry1: int = httpA1 / 256
+			var httpA1mod: int = httpA1 % 256
+			var httpA0: int = httpS0 + httpCarry1
+			var httpA0mod: int = httpA0 % 256
+
+			var httpAck0b: byte = httpA0mod as byte
+			var httpAck1b: byte = httpA1mod as byte
+			var httpAck2b: byte = httpA2mod as byte
+			var httpAck3b: byte = httpA3mod as byte
+
+			this.httpAckNum0 = httpAck0b
+			this.httpAckNum1 = httpAck1b
+			this.httpAckNum2 = httpAck2b
+			this.httpAckNum3 = httpAck3b
+
+			var httpRemoteIp0: int = this.ByteToInt(this.rxFrame128[26])
+			var httpRemoteIp1: int = this.ByteToInt(this.rxFrame128[27])
+			var httpRemoteIp2: int = this.ByteToInt(this.rxFrame128[28])
+			var httpRemoteIp3: int = this.ByteToInt(this.rxFrame128[29])
+
+			var httpRemotePortHigh: int = this.ByteToInt(this.rxFrame128[34])
+			var httpRemotePortLow: int = this.ByteToInt(this.rxFrame128[35])
+
+			var httpLocalIp0i: int = this.ByteToInt(this.localIp[0])
+			var httpLocalIp1i: int = this.ByteToInt(this.localIp[1])
+			var httpLocalIp2i: int = this.ByteToInt(this.localIp[2])
+			var httpLocalIp3i: int = this.ByteToInt(this.localIp[3])
+
+			var httpLocalPortHighI: int = this.ByteToInt(this.localPort[0])
+			var httpLocalPortLowI: int = this.ByteToInt(this.localPort[1])
+
+			var httpIpv4TotalLength = this.responseGenerator.GetIpv4TotalLength(httpBodyLengthFwd)
+			var httpIpv4TotalLengthHigh = httpIpv4TotalLength / 256
+			var httpIpv4TotalLengthLow = httpIpv4TotalLength % 256
+			var httpIpv4Cs: int = this.ipv4Calc.CalculateFixedTcpHeaderChecksum(httpIpv4TotalLengthHigh, httpIpv4TotalLengthLow, 0, 1, httpLocalIp0i, httpLocalIp1i, httpLocalIp2i, httpLocalIp3i, httpRemoteIp0, httpRemoteIp1, httpRemoteIp2, httpRemoteIp3)
+			var httpIpv4CsHighI: int = this.ipv4Calc.GetHighByte(httpIpv4Cs)
+			var httpIpv4CsLowI: int = this.ipv4Calc.GetLowByte(httpIpv4Cs)
+			var httpIpv4CsHighB: byte = httpIpv4CsHighI as byte
+			var httpIpv4CsLowB: byte = httpIpv4CsLowI as byte
+			this.httpIpv4CsHigh = httpIpv4CsHighB
+			this.httpIpv4CsLow = httpIpv4CsLowB
+
+			var httpHeaderChecksumWordSum = this.responseGenerator.GetHeaderChecksumWordSum(httpBodyLengthFwd)
+			var httpPayloadWordSum = httpHeaderChecksumWordSum + httpBodyChecksumFwd
+			var httpTcpLength = this.responseGenerator.GetTcpLength(httpBodyLengthFwd)
+			var httpTcpCs: int = this.tcpCalc.CalculatePayloadChecksum(httpLocalIp0i, httpLocalIp1i, httpLocalIp2i, httpLocalIp3i, httpRemoteIp0, httpRemoteIp1, httpRemoteIp2, httpRemoteIp3, httpLocalPortHighI, httpLocalPortLowI, httpRemotePortHigh, httpRemotePortLow, 0, 0, 0, 2, httpA0mod, httpA1mod, httpA2mod, httpA3mod, 0x19, 4, 0, httpTcpLength, httpPayloadWordSum)
+			var httpTcpCsHighI: int = this.tcpCalc.GetHighByte(httpTcpCs)
+			var httpTcpCsLowI: int = this.tcpCalc.GetLowByte(httpTcpCs)
+			var httpTcpCsHighB: byte = httpTcpCsHighI as byte
+			var httpTcpCsLowB: byte = httpTcpCsLowI as byte
+			this.httpTcpCsHigh = httpTcpCsHighB
+			this.httpTcpCsLow = httpTcpCsLowB
+
+			var httpResponseLengthPrime = this.responseGenerator.GetResponseFrameLength(httpBodyLengthFwd)
+			var httpResponseLength = this.responseGenerator.GetResponseFrameLength(httpBodyLengthFwd)
+			this.responseLength = httpResponseLength
+			this.connState = CONN_CLOSED
+			return
+		}
+
+		this.responseKind = RESPONSE_NONE
+		this.responseLength = 0
+	}
+
+	/**
+	 * Returns true when the loaded frame selected a response.
+	 */
+	public fn HasResponse() bool
+	{
+		return this.responseKind != RESPONSE_NONE
+	}
+
+	/**
+	 * Returns true when the loaded frame was accepted as a GET / (route 1) request.
+	 */
+	public fn AcceptedHttpRequest() bool
+	{
+		return this.responseKind == RESPONSE_HTTP
+	}
+
+	/**
+	 * Returns true when the loaded frame was accepted as route 2 request.
+	 */
+	public fn AcceptedRoute(route: int) bool
+	{
+		if (route == 1) { return this.responseKind == RESPONSE_HTTP }
+		if (route == 2) { return this.responseKind == RESPONSE_HTTP_ROUTE2 }
+		if (route == 3) { return this.responseKind == RESPONSE_HTTP_ROUTE3 }
+		return false
+	}
+
+	public fn AcceptedRoute2Request() bool
+	{
+		return this.AcceptedRoute(2)
+	}
+
+	/**
+	 * Returns true when the loaded frame was accepted as route 3 request.
+	 */
+	public fn AcceptedRoute3Request() bool
+	{
+		return this.AcceptedRoute(3)
+	}
+
+	/**
+	 * Returns the selected response kind constant.
+	 */
+	public fn GetResponseKind() int
+	{
+		return this.responseKind
+	}
+
+	/**
+	 * Returns the selected response length in bytes.
+	 */
+	public fn GetResponseLength() int
+	{
+		return this.responseLength
+	}
+
+	/**
+	 * Returns true when index addresses a byte supplied by the application body store.
+	 */
+	public fn IsHttpBodyFrameIndex(index: int) bool
+	{
+		var bodyOffset = this.responseGenerator.GetBodyFrameOffset(this.responseBodyLength)
+		return index >= bodyOffset && index < this.response.GetFrameLength(this.responseBodyLength)
+	}
+
+	/**
+	 * Converts a full-frame HTTP body index to a zero-based body byte index.
+	 */
+	public fn GetHttpBodyIndex(index: int) int
+	{
+		return index - this.responseGenerator.GetBodyFrameOffset(this.responseBodyLength)
+	}
+
+	/**
+	 * Returns one byte of the selected response, using httpBodyByte for HTTP body positions.
+	 */
+	public fn GetResponseByte(
+		index: int,
+		httpBodyByte: logic[8]) logic[8]
+	{
+		if (this.responseKind == RESPONSE_SYN_ACK) {
+			var ourSeq: byte[4]
+			ourSeq[0] = 0x00
+			ourSeq[1] = 0x00
+			ourSeq[2] = 0x00
+			ourSeq[3] = 0x01
+
+			var ackNum: byte[4]
+			ackNum[0] = this.ackNum0
+			ackNum[1] = this.ackNum1
+			ackNum[2] = this.ackNum2
+			ackNum[3] = this.ackNum3
+
+			var synAckWindow: byte[2]
+			synAckWindow[0] = 0x04
+			synAckWindow[1] = 0x00
+
+			var synAckIpv4Cs: byte[2]
+			synAckIpv4Cs[0] = this.ipv4CsHigh
+			synAckIpv4Cs[1] = this.ipv4CsLow
+
+			var synAckTcpCs: byte[2]
+			synAckTcpCs[0] = this.tcpCsHigh
+			synAckTcpCs[1] = this.tcpCsLow
+
+			return this.synAckComposer.GetFrameByte(this.rxFrame128, index, this.localMac, this.localIp, synAckIpv4Cs, ourSeq, ackNum, synAckWindow, synAckTcpCs)
+		}
+
+		if (this.responseKind == RESPONSE_HTTP || this.responseKind == RESPONSE_HTTP_ROUTE2 || this.responseKind == RESPONSE_HTTP_ROUTE3) {
+			var httpIpv4Cs: byte[2]
+			httpIpv4Cs[0] = this.httpIpv4CsHigh
+			httpIpv4Cs[1] = this.httpIpv4CsLow
+
+			var tcpSequence: byte[4]
+			tcpSequence[0] = 0x00
+			tcpSequence[1] = 0x00
+			tcpSequence[2] = 0x00
+			tcpSequence[3] = 0x02
+
+			var acknowledgment: byte[4]
+			acknowledgment[0] = this.httpAckNum0
+			acknowledgment[1] = this.httpAckNum1
+			acknowledgment[2] = this.httpAckNum2
+			acknowledgment[3] = this.httpAckNum3
+
+			var httpWindow: byte[2]
+			httpWindow[0] = 0x04
+			httpWindow[1] = 0x00
+
+			var httpTcpCs: byte[2]
+			httpTcpCs[0] = this.httpTcpCsHigh
+			httpTcpCs[1] = this.httpTcpCsLow
+
+			return this.response.GetFrameByte(this.rxFrame128, index, this.responseBodyLength, this.localMac, this.localIp, httpIpv4Cs, tcpSequence, acknowledgment, 0x19, httpWindow, httpTcpCs, httpBodyByte)
+		}
+
+		return 0x00
+	}
+}

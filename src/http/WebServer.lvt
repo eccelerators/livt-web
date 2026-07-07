@@ -1,0 +1,185 @@
+namespace Livt.Web.Http
+
+/**
+ * Reusable web-server facade around the lower-level Livt.Web.Http.NetworkEndpoint.
+ */
+component WebServer
+{
+	ws_r1b0: byte
+	ws_r1b1: byte
+	ws_r1b2: byte
+	ws_r1b3: byte
+	ws_r1b4: byte
+	ws_r1b5: byte
+	ws_r1b6: byte
+	ws_r1len: int
+	ws_r2b0: byte
+	ws_r2b1: byte
+	ws_r2b2: byte
+	ws_r2b3: byte
+	ws_r2b4: byte
+	ws_r2b5: byte
+	ws_r2b6: byte
+	ws_r2len: int
+	ws_r3b0: byte
+	ws_r3b1: byte
+	ws_r3b2: byte
+	ws_r3b3: byte
+	ws_r3b4: byte
+	ws_r3b5: byte
+	ws_r3b6: byte
+	ws_r3len: int
+	endpoint: NetworkEndpoint
+
+	new(
+		localMac: byte[6],
+		localIp: byte[4],
+		localPort: byte[2])
+	{
+		this.endpoint = new NetworkEndpoint(
+			localMac, localIp, localPort)
+		this.ws_r1b0 = 0x2F
+		this.ws_r1b1 = 0x00
+		this.ws_r1b2 = 0x00
+		this.ws_r1b3 = 0x00
+		this.ws_r1b4 = 0x00
+		this.ws_r1b5 = 0x00
+		this.ws_r1b6 = 0x00
+		this.ws_r1len = 1
+		this.ws_r2b0 = 0x00
+		this.ws_r2b1 = 0x00
+		this.ws_r2b2 = 0x00
+		this.ws_r2b3 = 0x00
+		this.ws_r2b4 = 0x00
+		this.ws_r2b5 = 0x00
+		this.ws_r2b6 = 0x00
+		this.ws_r2len = 0
+		this.ws_r3b0 = 0x00
+		this.ws_r3b1 = 0x00
+		this.ws_r3b2 = 0x00
+		this.ws_r3b3 = 0x00
+		this.ws_r3b4 = 0x00
+		this.ws_r3b5 = 0x00
+		this.ws_r3b6 = 0x00
+		this.ws_r3len = 0
+	}
+
+	/**
+	 * Sets the HTTP body length and checksum word sum for a route slot.
+	 * Routes are generic HTTP route slots 1, 2, and 3.
+	 */
+	public fn SetBodyConfig(route: int, length: int, checksumWordSum: int)
+	{
+		this.endpoint.SetBodyConfig(route, length, checksumWordSum)
+	}
+
+	/**
+	 * Configures the path for a route.
+	 * route=1, route=2, or route=3; path=1 selects "/", path=2 selects the second built-in path, and path=3 selects the third built-in path.
+	 */
+	public fn SetRoutePath(route: int, path: int)
+	{
+		this.endpoint.SetRoutePath(route, path)
+	}
+
+	/**
+	 * Clears endpoint response state before a new frame is copied in.
+	 */
+	public fn BeginFrame()
+	{
+		this.endpoint.BeginFrame()
+	}
+
+	/**
+	 * Copies one received Ethernet-frame byte into the endpoint.
+	 */
+	public fn LoadRxByte(index: int, value: byte)
+	{
+		this.endpoint.LoadRxByte(index, value)
+	}
+
+	/**
+	 * Classifies the copied frame and selects any response.
+	 */
+	public fn HandleFrame()
+	{
+		this.endpoint.HandleFrame()
+	}
+
+	/**
+	 * Returns true when the endpoint has selected a response.
+	 */
+	public fn HasResponse() bool
+	{
+		return this.endpoint.HasResponse()
+	}
+
+	/**
+	 * Returns the selected response kind constant.
+	 */
+	public fn GetResponseKind() int
+	{
+		return this.endpoint.GetResponseKind()
+	}
+
+	/**
+	 * Returns the selected response length in bytes.
+	 */
+	public fn GetResponseLength() int
+	{
+		return this.endpoint.GetResponseLength()
+	}
+
+	/**
+	 * Returns true when the copied frame was accepted as the HTTP GET / request.
+	 */
+	public fn AcceptedHttpRequest() bool
+	{
+		return this.endpoint.AcceptedHttpRequest()
+	}
+
+	/**
+	 * Returns true when the loaded frame was accepted as configured route 2.
+	 */
+	public fn AcceptedRoute(route: int) bool
+	{
+		return this.endpoint.AcceptedRoute(route)
+	}
+
+	public fn AcceptedRoute2Request() bool
+	{
+		return this.endpoint.AcceptedRoute(2)
+	}
+
+	/**
+	 * Returns true when the loaded frame was accepted as configured route 3.
+	 */
+	public fn AcceptedRoute3Request() bool
+	{
+		return this.endpoint.AcceptedRoute(3)
+	}
+
+	/**
+	 * Returns true when the response frame index falls within the HTTP body region.
+	 */
+	public fn IsHttpBodyFrameIndex(index: int) bool
+	{
+		return this.endpoint.IsHttpBodyFrameIndex(index)
+	}
+
+	/**
+	 * Converts a response frame index to an application body byte index.
+	 */
+	public fn GetHttpBodyIndex(index: int) int
+	{
+		return this.endpoint.GetHttpBodyIndex(index)
+	}
+
+	/**
+	 * Returns one response byte, using httpBodyByte for application body bytes.
+	 */
+	public fn GetResponseByte(index: int, httpBodyByte: logic[8]) logic[8]
+	{
+		return this.endpoint.GetResponseByte(index, httpBodyByte)
+	}
+}

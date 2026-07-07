@@ -1,0 +1,25 @@
+namespace Livt.Web.Http
+
+/**
+ * RFC 1945 — Hypertext Transfer Protocol -- HTTP/1.0
+ * https://www.rfc-editor.org/rfc/rfc1945
+ *
+ * Recognizes the minimal HTTP request token "GET / " at a given frame offset.
+ */
+component HttpGetRootRecognizer
+{
+	/**
+	 * Returns true when the frame contains exactly "GET / " at the supplied offset.
+	 */
+	public fn IsGetRoot(frame: byte[128], offset: int) bool
+	{
+		var request = "GET / ".Encode()
+
+		return frame[offset] == request[0]
+			&& frame[offset + 1] == request[1]
+			&& frame[offset + 2] == request[2]
+			&& frame[offset + 3] == request[3]
+			&& frame[offset + 4] == request[4]
+			&& frame[offset + 5] == request[5]
+	}
+}

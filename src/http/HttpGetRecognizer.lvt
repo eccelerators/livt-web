@@ -1,0 +1,94 @@
+namespace Livt.Web.Http
+
+/**
+ * RFC 1945 — Hypertext Transfer Protocol -- HTTP/1.0
+ * https://www.rfc-editor.org/rfc/rfc1945
+ *
+ * Configurable-path HTTP GET recognizer.
+ *
+ * The path bytes are stored as fields and configured at startup with SetPath().
+ * Defaults to "/" so callers that omit configuration still match the root path.
+ *
+ * IsGetRequest() checks that the frame contains "GET <path> " at the supplied
+ * offset. Supports paths up to 7 bytes.
+ */
+component HttpGetRecognizer
+{
+	path: byte[7]
+	pathLength: int
+
+	new()
+	{
+		this.pathLength = 1
+		this.path[0] = 0x2F
+	}
+
+	/**
+	 * Configures the path to match.
+	 * Only the first 7 bytes of path are used; length must be 1-7.
+	 */
+	public fn SetPath(b0: byte, b1: byte, b2: byte, b3: byte, b4: byte, b5: byte, b6: byte, length: int)
+	{
+		this.pathLength = length
+		this.path[0] = b0
+		this.path[1] = b1
+		this.path[2] = b2
+		this.path[3] = b3
+		this.path[4] = b4
+		this.path[5] = b5
+		this.path[6] = b6
+	}
+
+	/**
+	 * Returns true when the frame contains "GET <path> " at the supplied offset,
+	 * where <path> is the configured path.
+	 */
+	public fn IsGetRequest(frame: byte[128], offset: int) bool
+	{
+		var g = "GET ".Encode()
+
+		if (frame[offset] != g[0]) { return false }
+		if (frame[offset + 1] != g[1]) { return false }
+		if (frame[offset + 2] != g[2]) { return false }
+		if (frame[offset + 3] != g[3]) { return false }
+
+		if (this.pathLength >= 1)
+		{
+			if (frame[offset + 4] != this.path[0]) { return false }
+		}
+		if (this.pathLength >= 2)
+		{
+			if (frame[offset + 5] != this.path[1]) { return false }
+		}
+		if (this.pathLength >= 3)
+		{
+			if (frame[offset + 6] != this.path[2]) { return false }
+		}
+		if (this.pathLength >= 4)
+		{
+			if (frame[offset + 7] != this.path[3]) { return false }
+		}
+		if (this.pathLength >= 5)
+		{
+			if (frame[offset + 8] != this.path[4]) { return false }
+		}
+		if (this.pathLength >= 6)
+		{
+			if (frame[offset + 9] != this.path[5]) { return false }
+		}
+		if (this.pathLength >= 7)
+		{
+			if (frame[offset + 10] != this.path[6]) { return false }
+		}
+
+		if (this.pathLength == 1) { return frame[offset + 5] == 0x20 }
+		if (this.pathLength == 2) { return frame[offset + 6] == 0x20 }
+		if (this.pathLength == 3) { return frame[offset + 7] == 0x20 }
+		if (this.pathLength == 4) { return frame[offset + 8] == 0x20 }
+		if (this.pathLength == 5) { return frame[offset + 9] == 0x20 }
+		if (this.pathLength == 6) { return frame[offset + 10] == 0x20 }
+		if (this.pathLength == 7) { return frame[offset + 11] == 0x20 }
+
+			return false
+	}
+}

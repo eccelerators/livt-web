@@ -1,0 +1,317 @@
+namespace Livt.Web.Tests.Http
+
+using Livt.Web.Http
+using Livt.Net
+
+@Test
+component NetworkEndpointTest
+{
+	endpoint: NetworkEndpoint
+
+	new()
+	{
+		var localMac: byte[6]
+		localMac[0] = 0x02
+		localMac[1] = 0xAA
+		localMac[2] = 0xBB
+		localMac[3] = 0xCC
+		localMac[4] = 0xDD
+		localMac[5] = 0xEE
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+		var localPort: byte[2]
+		localPort[0] = 0x00
+		localPort[1] = 0x50
+		this.endpoint = new NetworkEndpoint(localMac, localIp, localPort)
+	}
+
+	fn BeginEmptyFrame()
+	{
+		this.endpoint.BeginFrame()
+
+		for (var i = 0; i < 128; i++)
+		{
+			this.endpoint.LoadRxByte(i, 0x00)
+		}
+	}
+
+	fn LoadArpEthernetIpv4RequestHeader()
+	{
+		this.endpoint.LoadRxByte(14, 0x00)
+		this.endpoint.LoadRxByte(15, 0x01)
+		this.endpoint.LoadRxByte(16, 0x08)
+		this.endpoint.LoadRxByte(17, 0x00)
+		this.endpoint.LoadRxByte(18, 0x06)
+		this.endpoint.LoadRxByte(19, 0x04)
+		this.endpoint.LoadRxByte(20, 0x00)
+		this.endpoint.LoadRxByte(21, 0x01)
+	}
+
+	fn LoadArpSender()
+	{
+		this.endpoint.LoadRxByte(22, 0x02)
+		this.endpoint.LoadRxByte(23, 0x10)
+		this.endpoint.LoadRxByte(24, 0x20)
+		this.endpoint.LoadRxByte(25, 0x30)
+		this.endpoint.LoadRxByte(26, 0x40)
+		this.endpoint.LoadRxByte(27, 0x50)
+		this.endpoint.LoadRxByte(28, 0x0A)
+		this.endpoint.LoadRxByte(29, 0x00)
+		this.endpoint.LoadRxByte(30, 0x00)
+		this.endpoint.LoadRxByte(31, 0x02)
+	}
+
+	fn LoadLocalArpTargetIp()
+	{
+		this.endpoint.LoadRxByte(38, 0x0A)
+		this.endpoint.LoadRxByte(39, 0x00)
+		this.endpoint.LoadRxByte(40, 0x00)
+		this.endpoint.LoadRxByte(41, 0x01)
+	}
+
+	fn GetIcmpRequestByte(index: int) byte
+	{
+		if (index == 0) { return 0x02 }
+		if (index == 1) { return 0x55 }
+		if (index == 2) { return 0x66 }
+		if (index == 3) { return 0x77 }
+		if (index == 4) { return 0x11 }
+		if (index == 5) { return 0x22 }
+		if (index == 6) { return 0x02 }
+		if (index == 7) { return 0x10 }
+		if (index == 8) { return 0x20 }
+		if (index == 9) { return 0x30 }
+		if (index == 10) { return 0x40 }
+		if (index == 11) { return 0x50 }
+		if (index == 12) { return 0x08 }
+		if (index == 13) { return 0x00 }
+		if (index == 14) { return 0x45 }
+		if (index == 15) { return 0x00 }
+		if (index == 16) { return 0x00 }
+		if (index == 17) { return 0x28 }
+		if (index == 18) { return 0x12 }
+		if (index == 19) { return 0x34 }
+		if (index == 20) { return 0x40 }
+		if (index == 21) { return 0x00 }
+		if (index == 22) { return 0x40 }
+		if (index == 23) { return 0x01 }
+		if (index == 24) { return 0x00 }
+		if (index == 25) { return 0x00 }
+		if (index == 26) { return 0x0A }
+		if (index == 27) { return 0x00 }
+		if (index == 28) { return 0x00 }
+		if (index == 29) { return 0x02 }
+		if (index == 30) { return 0x0A }
+		if (index == 31) { return 0x00 }
+		if (index == 32) { return 0x00 }
+		if (index == 33) { return 0x01 }
+		if (index == 34) { return 0x08 }
+		if (index == 35) { return 0x00 }
+		if (index == 36) { return 0x7F }
+		if (index == 37) { return 0x5E }
+		if (index == 38) { return 0x12 }
+		if (index == 39) { return 0x34 }
+		if (index == 40) { return 0x00 }
+		if (index == 41) { return 0x01 }
+		if (index == 42) { return 0x61 }
+		if (index == 43) { return 0x62 }
+		if (index == 44) { return 0x63 }
+		if (index == 45) { return 0x64 }
+		if (index == 46) { return 0x65 }
+		if (index == 47) { return 0x66 }
+		if (index == 48) { return 0x67 }
+		if (index == 49) { return 0x68 }
+		if (index == 50) { return 0x69 }
+		if (index == 51) { return 0x6A }
+		if (index == 52) { return 0x6B }
+		if (index == 53) { return 0x6C }
+		return 0x00
+	}
+
+	fn LoadIcmpEchoRequest()
+	{
+		for (var i = 0; i < 128; i++)
+		{
+			var requestByte = this.GetIcmpRequestByte(i)
+			this.endpoint.LoadRxByte(i, requestByte)
+		}
+	}
+
+	fn LoadTcpBaseFrame()
+	{
+		this.endpoint.LoadRxByte(6, 0x9C)
+		this.endpoint.LoadRxByte(7, 0xEB)
+		this.endpoint.LoadRxByte(8, 0xE8)
+		this.endpoint.LoadRxByte(9, 0x16)
+		this.endpoint.LoadRxByte(10, 0x7A)
+		this.endpoint.LoadRxByte(11, 0x21)
+		this.endpoint.LoadRxByte(12, 0x08)
+		this.endpoint.LoadRxByte(13, 0x00)
+		this.endpoint.LoadRxByte(14, 0x45)
+		this.endpoint.LoadRxByte(20, 0x40)
+		this.endpoint.LoadRxByte(21, 0x00)
+		this.endpoint.LoadRxByte(23, 0x06)
+		this.endpoint.LoadRxByte(26, 0x0A)
+		this.endpoint.LoadRxByte(27, 0x00)
+		this.endpoint.LoadRxByte(28, 0x00)
+		this.endpoint.LoadRxByte(29, 0x65)
+		this.endpoint.LoadRxByte(30, 0x0A)
+		this.endpoint.LoadRxByte(31, 0x00)
+		this.endpoint.LoadRxByte(32, 0x00)
+		this.endpoint.LoadRxByte(33, 0x01)
+		this.endpoint.LoadRxByte(34, 0x8C)
+		this.endpoint.LoadRxByte(35, 0x8A)
+		this.endpoint.LoadRxByte(36, 0x00)
+		this.endpoint.LoadRxByte(37, 0x50)
+		this.endpoint.LoadRxByte(38, 0x8F)
+		this.endpoint.LoadRxByte(39, 0x4E)
+		this.endpoint.LoadRxByte(40, 0x3C)
+		this.endpoint.LoadRxByte(41, 0x39)
+		this.endpoint.LoadRxByte(46, 0x50)
+	}
+
+	@Test
+	fn DispatchesArpBeforeOtherProtocols()
+	{
+		this.BeginEmptyFrame()
+		this.LoadArpEthernetIpv4RequestHeader()
+		this.LoadArpSender()
+		this.LoadLocalArpTargetIp()
+
+		this.endpoint.HandleFrame()
+
+		assert this.endpoint.HasResponse() == true
+		assert this.endpoint.GetResponseKind() == 1
+		assert this.endpoint.GetResponseLength() == 60
+		assert this.endpoint.SawArpRequest() == true
+		assert this.endpoint.GetResponseByte(7, 0x00) == 0xAA
+		assert this.endpoint.GetResponseByte(59, 0x00) == 0x00
+	}
+
+	@Test
+	fn DispatchesIcmpEchoRequest()
+	{
+		this.BeginEmptyFrame()
+		this.LoadIcmpEchoRequest()
+
+		this.endpoint.HandleFrame()
+
+		assert this.endpoint.HasResponse() == true
+		assert this.endpoint.GetResponseKind() == 2
+		assert this.endpoint.GetResponseLength() == 60
+		assert this.endpoint.SawIpv4ForLocalIp() == true
+		assert this.endpoint.SawIcmpForLocalIp() == true
+		assert this.endpoint.SawIcmpEcho() == true
+		assert this.endpoint.GetResponseByte(6, 0x00) == 0x02
+		assert this.endpoint.GetResponseByte(7, 0x00) == 0xAA
+		assert this.endpoint.GetResponseByte(34, 0x00) == 0x00
+	}
+
+	@Test
+	fn DispatchesTcpSynAckWithBoardChecksum()
+	{
+		this.BeginEmptyFrame()
+		this.LoadTcpBaseFrame()
+		this.endpoint.LoadRxByte(47, 0x02)
+
+		this.endpoint.HandleFrame()
+
+		assert this.endpoint.HasResponse() == true
+		assert this.endpoint.GetResponseKind() == 3
+		assert this.endpoint.GetResponseLength() == 60
+		assert this.endpoint.SawIpv4ForLocalIp() == true
+		assert this.endpoint.SawTcpPacket() == true
+		assert this.endpoint.SawSynRequest() == true
+		assert this.endpoint.GetResponseByte(24, 0x00) == 0x26
+		assert this.endpoint.GetResponseByte(25, 0x00) == 0x69
+		assert this.endpoint.GetResponseByte(42, 0x00) == 0x8F
+		assert this.endpoint.GetResponseByte(45, 0x00) == 0x3A
+		assert this.endpoint.GetResponseByte(50, 0x00) == 0x3F
+		assert this.endpoint.GetResponseByte(51, 0x00) == 0x09
+	}
+
+	@Test
+	fn DispatchesHttpStatusAfterHandshake()
+	{
+		this.endpoint.SetBodyConfig(1, 64, 717318)
+		this.endpoint.SetBodyConfig(3, 451, 4784892)
+		this.endpoint.SetRoutePath(3, 3)
+
+		this.BeginEmptyFrame()
+		this.LoadTcpBaseFrame()
+		this.endpoint.LoadRxByte(47, 0x02)
+		this.endpoint.HandleFrame()
+
+		this.BeginEmptyFrame()
+		this.LoadTcpBaseFrame()
+		this.endpoint.LoadRxByte(47, 0x10)
+		this.endpoint.HandleFrame()
+
+		this.BeginEmptyFrame()
+		this.LoadTcpBaseFrame()
+		this.endpoint.LoadRxByte(47, 0x18)
+		var httpGetStatus = "GET /status ".Encode()
+		for (var i = 0; i < 12; i++)
+		{
+			this.endpoint.LoadRxByte(54 + i, httpGetStatus[i])
+		}
+		this.endpoint.HandleFrame()
+
+		var expectedResponseLength = 570
+		var bodyOffset = 119
+
+		assert this.endpoint.HasResponse() == true
+		assert this.endpoint.AcceptedRoute3Request() == true
+		assert this.endpoint.GetResponseKind() == 6
+		assert this.endpoint.GetResponseLength() == expectedResponseLength
+		assert this.endpoint.SawRoute3Request() == true
+		assert this.endpoint.IsHttpBodyFrameIndex(bodyOffset) == true
+		assert this.endpoint.GetHttpBodyIndex(bodyOffset) == 0
+		assert this.endpoint.GetResponseByte(bodyOffset, 0x3C) == 0x3C
+	}
+
+	@Test
+	fn DispatchesHttpAfterHandshake()
+	{
+		this.endpoint.SetBodyConfig(1, 64, 717318)
+
+		var httpGetRoot = "GET / ".Encode()
+
+		this.BeginEmptyFrame()
+		this.LoadTcpBaseFrame()
+		this.endpoint.LoadRxByte(47, 0x02)
+		this.endpoint.HandleFrame()
+
+		this.BeginEmptyFrame()
+		this.LoadTcpBaseFrame()
+		this.endpoint.LoadRxByte(47, 0x10)
+		this.endpoint.HandleFrame()
+
+		this.BeginEmptyFrame()
+		this.LoadTcpBaseFrame()
+		this.endpoint.LoadRxByte(47, 0x18)
+		this.endpoint.LoadRxByte(54, httpGetRoot[0])
+		this.endpoint.LoadRxByte(55, httpGetRoot[1])
+		this.endpoint.LoadRxByte(56, httpGetRoot[2])
+		this.endpoint.LoadRxByte(57, httpGetRoot[3])
+		this.endpoint.LoadRxByte(58, httpGetRoot[4])
+		this.endpoint.LoadRxByte(59, httpGetRoot[5])
+		this.endpoint.HandleFrame()
+
+		// indexLength=64: headerLength=64, responseFrameLength=54+64+64=182, bodyOffset=54+64=118
+		var expectedResponseLength = 182
+		var bodyOffset = 118
+
+		assert this.endpoint.HasResponse() == true
+		assert this.endpoint.AcceptedHttpRequest() == true
+		assert this.endpoint.GetResponseKind() == 4
+		assert this.endpoint.GetResponseLength() == expectedResponseLength
+		assert this.endpoint.SawHttpRequest() == true
+		assert this.endpoint.IsHttpBodyFrameIndex(bodyOffset) == true
+		assert this.endpoint.GetHttpBodyIndex(bodyOffset) == 0
+		assert this.endpoint.GetResponseByte(bodyOffset, 0x3C) == 0x3C
+	}
+}

@@ -1,0 +1,461 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * Reusable dispatcher for the small Ethernet/ARP/IPv4/ICMP/TCP/HTTP endpoint.
+ */
+component NetworkEndpoint
+{
+	public const ENDPOINT_RESPONSE_NONE: int = 0
+	public const ENDPOINT_RESPONSE_ARP: int = 1
+	public const ENDPOINT_RESPONSE_ICMP_ECHO: int = 2
+	public const ENDPOINT_RESPONSE_TCP_SYN_ACK: int = 3
+	public const ENDPOINT_RESPONSE_HTTP: int = 4
+	public const ENDPOINT_RESPONSE_HTTP_ROUTE2: int = 5
+	public const ENDPOINT_RESPONSE_HTTP_ROUTE3: int = 6
+	public const ENDPOINT_ARP_RESPONSE_LENGTH: int = 60
+
+	rxFrame64: byte[64]
+	rxFrame128: byte[128]
+	responseKind: int
+	responseLength: int
+	localMac: byte[6]
+	localIp: byte[4]
+	localPort: byte[2]
+
+	arp: ArpResponder
+	icmp: IcmpEchoResponder
+	ne_r1b0: byte
+	ne_r1b1: byte
+	ne_r1b2: byte
+	ne_r1b3: byte
+	ne_r1b4: byte
+	ne_r1b5: byte
+	ne_r1b6: byte
+	ne_r1len: int
+	ne_r2b0: byte
+	ne_r2b1: byte
+	ne_r2b2: byte
+	ne_r2b3: byte
+	ne_r2b4: byte
+	ne_r2b5: byte
+	ne_r2b6: byte
+	ne_r2len: int
+	ne_r3b0: byte
+	ne_r3b1: byte
+	ne_r3b2: byte
+	ne_r3b3: byte
+	ne_r3b4: byte
+	ne_r3b5: byte
+	ne_r3b6: byte
+	ne_r3len: int
+	http: HttpServer
+
+	arpRequestSeen: bool
+	ipv4FrameSeen: bool
+	ipv4FixedHeaderSeen: bool
+	ipv4ForLocalIpSeen: bool
+	icmpPacketSeen: bool
+	tcpPacketSeen: bool
+	udpPacketSeen: bool
+	icmpForLocalIpSeen: bool
+	icmpEchoSeen: bool
+	synRequestSeen: bool
+	httpRequestSeen: bool
+	route2RequestSeen: bool
+	route3RequestSeen: bool
+
+	new(
+		localMac: byte[6],
+		localIp: byte[4],
+		localPort: byte[2])
+	{
+		this.localMac[0] = localMac[0]
+		this.localMac[1] = localMac[1]
+		this.localMac[2] = localMac[2]
+		this.localMac[3] = localMac[3]
+		this.localMac[4] = localMac[4]
+		this.localMac[5] = localMac[5]
+		this.localIp[0] = localIp[0]
+		this.localIp[1] = localIp[1]
+		this.localIp[2] = localIp[2]
+		this.localIp[3] = localIp[3]
+		this.localPort[0] = localPort[0]
+		this.localPort[1] = localPort[1]
+
+		this.arp = new ArpResponder()
+		this.icmp = new IcmpEchoResponder()
+		this.ne_r1b0 = 0x2F
+		this.ne_r1b1 = 0x00
+		this.ne_r1b2 = 0x00
+		this.ne_r1b3 = 0x00
+		this.ne_r1b4 = 0x00
+		this.ne_r1b5 = 0x00
+		this.ne_r1b6 = 0x00
+		this.ne_r1len = 1
+		this.ne_r2b0 = 0x00
+		this.ne_r2b1 = 0x00
+		this.ne_r2b2 = 0x00
+		this.ne_r2b3 = 0x00
+		this.ne_r2b4 = 0x00
+		this.ne_r2b5 = 0x00
+		this.ne_r2b6 = 0x00
+		this.ne_r2len = 0
+		this.ne_r3b0 = 0x00
+		this.ne_r3b1 = 0x00
+		this.ne_r3b2 = 0x00
+		this.ne_r3b3 = 0x00
+		this.ne_r3b4 = 0x00
+		this.ne_r3b5 = 0x00
+		this.ne_r3b6 = 0x00
+		this.ne_r3len = 0
+		this.http = new HttpServer(localMac, localIp, localPort)
+	}
+
+	/**
+	 * Sets the HTTP body length and checksum word sum for a route slot.
+	 * Must be called before the first response frame is emitted.
+	 */
+	public fn SetBodyConfig(route: int, length: int, checksumWordSum: int)
+	{
+		this.http.SetBodyConfig(route, length, checksumWordSum)
+	}
+
+	/**
+	 * Configures the path for a route. route=1 for primary, route=2 for secondary.
+	 * path=1 means "/" (root), path=2 selects the second built-in path and path=3 selects the third built-in path.
+	 */
+	public fn SetRoutePath(route: int, path: int)
+	{
+		this.http.SetRoutePath(route, path)
+	}
+
+
+	/**
+	 * Clears previous response state before loading a new received frame.
+	 */
+	public fn BeginFrame()
+	{
+		this.responseKind = ENDPOINT_RESPONSE_NONE
+		this.responseLength = 0
+		this.arpRequestSeen = false
+		this.ipv4FrameSeen = false
+		this.ipv4FixedHeaderSeen = false
+		this.ipv4ForLocalIpSeen = false
+		this.icmpPacketSeen = false
+		this.icmpForLocalIpSeen = false
+		this.icmpEchoSeen = false
+		this.tcpPacketSeen = false
+		this.udpPacketSeen = false
+		this.synRequestSeen = false
+		this.httpRequestSeen = false
+		this.route2RequestSeen = false
+		this.route3RequestSeen = false
+		this.http.BeginFrame()
+	}
+
+	/**
+	 * Copies one received Ethernet-frame byte into the endpoint frame buffers.
+	 */
+	public fn LoadRxByte(index: int, value: byte)
+	{
+		this.rxFrame128[index] = value
+		this.http.LoadRxByte(index, value)
+
+		if (index < 64)
+		{
+			this.rxFrame64[index] = value
+		}
+	}
+
+	fn MarkIpv4Diagnostics(localIp: byte[4])
+	{
+		if (this.rxFrame128[12] == 0x08 && this.rxFrame128[13] == 0x00)
+		{
+			this.ipv4FrameSeen = true
+
+			if (this.rxFrame128[14] == 0x45)
+			{
+				this.ipv4FixedHeaderSeen = true
+			}
+
+			if (this.rxFrame128[23] == 0x01)
+			{
+				this.icmpPacketSeen = true
+			}
+
+			if (this.rxFrame128[14] == 0x45)
+			{
+				if (this.rxFrame128[30] == localIp[0] && this.rxFrame128[31] == localIp[1] && this.rxFrame128[32] == localIp[2] && this.rxFrame128[33] == localIp[3])
+				{
+					this.ipv4ForLocalIpSeen = true
+
+					if (this.rxFrame128[23] == 0x01)
+					{
+						this.icmpForLocalIpSeen = true
+					}
+
+					if (this.rxFrame128[23] == 0x06)
+					{
+						this.tcpPacketSeen = true
+					}
+
+					if (this.rxFrame128[23] == 0x11)
+					{
+						this.udpPacketSeen = true
+					}
+				}
+			}
+
+			if (this.rxFrame128[14] == 0x45 && this.rxFrame128[23] == 0x01)
+			{
+				if (this.rxFrame128[20] == 0x00 && this.rxFrame128[21] == 0x00)
+				{
+					if (this.rxFrame128[30] == localIp[0] && this.rxFrame128[31] == localIp[1] && this.rxFrame128[32] == localIp[2] && this.rxFrame128[33] == localIp[3])
+					{
+						this.icmpForLocalIpSeen = true
+					}
+				}
+
+				if (this.rxFrame128[20] == 0x40 && this.rxFrame128[21] == 0x00)
+				{
+					if (this.rxFrame128[30] == localIp[0] && this.rxFrame128[31] == localIp[1] && this.rxFrame128[32] == localIp[2] && this.rxFrame128[33] == localIp[3])
+					{
+						this.icmpForLocalIpSeen = true
+					}
+				}
+			}
+		}
+	}
+
+	/**
+	 * Classifies the loaded frame and selects the highest-priority response.
+	 * Priority: ARP > ICMP echo > TCP (SYN-ACK / HTTP).
+	 */
+	public fn HandleFrame()
+	{
+		this.responseKind = ENDPOINT_RESPONSE_NONE
+		this.responseLength = 0
+
+		this.MarkIpv4Diagnostics(this.localIp)
+
+		if (this.arp.ShouldRespond(this.rxFrame64, this.localIp) == true)
+		{
+			this.arpRequestSeen = true
+			this.responseKind = ENDPOINT_RESPONSE_ARP
+			this.responseLength = ENDPOINT_ARP_RESPONSE_LENGTH
+			return
+		}
+
+		if (this.icmp.ShouldRespond(this.rxFrame128, this.localIp) == true)
+		{
+			this.icmpEchoSeen = true
+			var icmpResponseLength = this.icmp.GetReplyLength(this.rxFrame128)
+			this.responseKind = ENDPOINT_RESPONSE_ICMP_ECHO
+			this.responseLength = icmpResponseLength
+			return
+		}
+
+		this.http.HandleFrame()
+
+		if (this.http.HasResponse() == true)
+		{
+			var httpResponseKind = this.http.GetResponseKind()
+
+			if (httpResponseKind == 3)
+			{
+				this.synRequestSeen = true
+				this.responseKind = ENDPOINT_RESPONSE_TCP_SYN_ACK
+			}
+
+			if (this.http.AcceptedHttpRequest() == true)
+			{
+				this.httpRequestSeen = true
+				this.responseKind = ENDPOINT_RESPONSE_HTTP
+			}
+
+				if (this.http.AcceptedRoute2Request() == true)
+				{
+					this.route2RequestSeen = true
+					this.responseKind = ENDPOINT_RESPONSE_HTTP_ROUTE2
+				}
+
+				if (this.http.AcceptedRoute3Request() == true)
+				{
+					this.route3RequestSeen = true
+					this.responseKind = ENDPOINT_RESPONSE_HTTP_ROUTE3
+				}
+
+			var httpResponseLength = this.http.GetResponseLength()
+			this.responseLength = httpResponseLength
+		}
+	}
+
+	/**
+	 * Returns true when the loaded frame selected a response.
+	 */
+	public fn HasResponse() bool
+	{
+		return this.responseKind != ENDPOINT_RESPONSE_NONE
+	}
+
+	/**
+	 * Returns true when the loaded frame was accepted as the HTTP GET / request.
+	 */
+	public fn AcceptedHttpRequest() bool
+	{
+		return this.responseKind == ENDPOINT_RESPONSE_HTTP
+	}
+
+		/**
+		 * Returns true when the loaded frame was accepted as configured route 2.
+		 */
+	public fn AcceptedRoute(route: int) bool
+	{
+		if (route == 1) { return this.responseKind == ENDPOINT_RESPONSE_HTTP }
+		if (route == 2) { return this.responseKind == ENDPOINT_RESPONSE_HTTP_ROUTE2 }
+		if (route == 3) { return this.responseKind == ENDPOINT_RESPONSE_HTTP_ROUTE3 }
+		return false
+	}
+
+	public fn AcceptedRoute2Request() bool
+	{
+		return this.AcceptedRoute(2)
+	}
+
+	/**
+	 * Returns true when the loaded frame was accepted as configured route 3.
+	 */
+	public fn AcceptedRoute3Request() bool
+	{
+		return this.AcceptedRoute(3)
+	}
+
+	/**
+	 * Returns the selected response kind constant.
+	 */
+	public fn GetResponseKind() int
+	{
+		return this.responseKind
+	}
+
+	/**
+	 * Returns the selected response length in bytes.
+	 */
+	public fn GetResponseLength() int
+	{
+		return this.responseLength
+	}
+
+	/**
+	 * Returns true when index addresses a byte supplied by the application body store.
+	 */
+	public fn IsHttpBodyFrameIndex(index: int) bool
+	{
+		return (this.responseKind == ENDPOINT_RESPONSE_HTTP || this.responseKind == ENDPOINT_RESPONSE_HTTP_ROUTE2 || this.responseKind == ENDPOINT_RESPONSE_HTTP_ROUTE3) && this.http.IsHttpBodyFrameIndex(index)
+	}
+
+	/**
+	 * Converts a full-frame HTTP body index to a zero-based body byte index.
+	 */
+	public fn GetHttpBodyIndex(index: int) int
+	{
+		return this.http.GetHttpBodyIndex(index)
+	}
+
+	/**
+	 * Returns one byte of the selected response, using httpBodyByte for HTTP body positions.
+	 */
+	public fn GetResponseByte(index: int, httpBodyByte: logic[8]) logic[8]
+	{
+		if (this.responseKind == ENDPOINT_RESPONSE_ARP)
+		{
+			return this.arp.GetReplyByte(this.rxFrame64, index, this.localMac, this.localIp)
+		}
+
+		if (this.responseKind == ENDPOINT_RESPONSE_ICMP_ECHO)
+		{
+			return this.icmp.GetReplyByte(this.rxFrame128, index, this.localMac, this.localIp)
+		}
+
+		if (this.responseKind == ENDPOINT_RESPONSE_TCP_SYN_ACK || this.responseKind == ENDPOINT_RESPONSE_HTTP || this.responseKind == ENDPOINT_RESPONSE_HTTP_ROUTE2 || this.responseKind == ENDPOINT_RESPONSE_HTTP_ROUTE3)
+		{
+			return this.http.GetResponseByte(index, httpBodyByte)
+		}
+
+		return 0x00
+	}
+
+	/**
+	 * Returns true when the last handled frame looked like an ARP request.
+	 */
+	public fn SawArpRequest() bool
+	{
+		return this.arpRequestSeen
+	}
+
+	/**
+	 * Returns true when the last handled frame was IPv4 traffic for the configured local IP address.
+	 */
+	public fn SawIpv4ForLocalIp() bool
+	{
+		return this.ipv4ForLocalIpSeen
+	}
+
+	/**
+	 * Returns true when the last handled frame was TCP traffic for the configured local IP address.
+	 */
+	public fn SawTcpPacket() bool
+	{
+		return this.tcpPacketSeen
+	}
+
+	/**
+	 * Returns true when the last handled frame was ICMP traffic for the configured local IP address.
+	 */
+	public fn SawIcmpForLocalIp() bool
+	{
+		return this.icmpForLocalIpSeen
+	}
+
+	/**
+	 * Returns true when the last handled frame was accepted as an ICMP echo request.
+	 */
+	public fn SawIcmpEcho() bool
+	{
+		return this.icmpEchoSeen
+	}
+
+	/**
+	 * Returns true when the last handled frame was accepted as a TCP SYN request.
+	 */
+	public fn SawSynRequest() bool
+	{
+		return this.synRequestSeen
+	}
+
+	/**
+	 * Returns true when the last handled frame was accepted as the primary HTTP route.
+	 */
+	public fn SawHttpRequest() bool
+	{
+		return this.httpRequestSeen
+	}
+
+	/**
+	 * Returns true when the last handled frame was accepted as configured route 2.
+	 */
+	public fn SawRoute2Request() bool
+	{
+		return this.route2RequestSeen
+	}
+
+	/**
+	 * Returns true when the last handled frame was accepted as configured route 3.
+	 */
+	public fn SawRoute3Request() bool
+	{
+		return this.route3RequestSeen
+	}
+}

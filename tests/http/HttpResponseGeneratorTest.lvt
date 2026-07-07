@@ -1,0 +1,95 @@
+namespace Livt.Web.Tests.Http
+
+using Livt.Web.Http
+using Livt.Net
+
+@Test
+component HttpResponseGeneratorTest
+{
+	generator: HttpResponseGenerator
+
+	new()
+	{
+		this.generator = new HttpResponseGenerator()
+	}
+
+	@Test
+	fn ExposesResponseLengths()
+	{
+		var bodyLength = 64
+		var headerLength = this.generator.GetHeaderLength(bodyLength)
+		var responseLength = this.generator.GetResponseLength(bodyLength)
+		var frameLength = this.generator.GetResponseFrameLength(bodyLength)
+
+		assert headerLength == 64
+		assert responseLength == headerLength + bodyLength
+		assert frameLength == 54 + responseLength
+	}
+
+	@Test
+	fn EmitsHttpHeaderBytes()
+	{
+		var status = "HTTP/1.0 200 OK".Encode()
+		var bodyLength = 64
+		var headerLength = this.generator.GetHeaderLength(bodyLength)
+		var contentLengthTens: byte = (0x30 + (bodyLength / 10)) as byte
+		var contentLengthOnes: byte = (0x30 + (bodyLength % 10)) as byte
+
+		assert this.generator.GetResponseByte(0, bodyLength, 0x00) == status[0]
+		assert this.generator.GetResponseByte(1, bodyLength, 0x00) == status[1]
+		assert this.generator.GetResponseByte(2, bodyLength, 0x00) == status[2]
+		assert this.generator.GetResponseByte(3, bodyLength, 0x00) == status[3]
+		assert this.generator.GetResponseByte(9, bodyLength, 0x00) == status[9]
+		assert this.generator.GetResponseByte(13, bodyLength, 0x00) == status[13]
+		assert this.generator.GetResponseByte(14, bodyLength, 0x00) == status[14]
+		assert this.generator.GetResponseByte(58, bodyLength, 0x00) == contentLengthTens
+		assert this.generator.GetResponseByte(59, bodyLength, 0x00) == contentLengthOnes
+		var headerLengthMinus2: int = 0
+		headerLengthMinus2 = headerLength - 2
+		var headerLengthMinus1: int = 0
+		headerLengthMinus1 = headerLength - 1
+		assert this.generator.GetResponseByte(headerLengthMinus2, bodyLength, 0x00) == 0x0D
+		assert this.generator.GetResponseByte(headerLengthMinus1, bodyLength, 0x00) == 0x0A
+	}
+
+	@Test
+	fn EmitsBodyAfterHeader()
+	{
+		var content = "<!doctype html><html><body><h1>Livt FPGA Web</h1></body></html>".Encode()
+		var bodyLength = 64
+		var headerLength = this.generator.GetHeaderLength(bodyLength)
+		var responseLength = this.generator.GetResponseLength(bodyLength)
+
+		assert this.generator.GetResponseByte(headerLength, bodyLength, content[0]) == content[0]
+		var headerLengthPlus1: int = 0
+		headerLengthPlus1 = headerLength + 1
+		var headerLengthPlus31: int = 0
+		headerLengthPlus31 = headerLength + 31
+		var responseLengthMinus1: int = 0
+		responseLengthMinus1 = responseLength - 1
+		assert this.generator.GetResponseByte(headerLengthPlus1, bodyLength, content[1]) == content[1]
+		assert this.generator.GetResponseByte(headerLengthPlus31, bodyLength, content[31]) == content[31]
+		assert this.generator.GetResponseByte(responseLengthMinus1, bodyLength, 0x0A) == 0x0A
+	}
+
+	@Test
+	fn EmitsResponseAtFrameOffset()
+	{
+		var status = "HTTP/1.0 200 OK".Encode()
+		var content = "<!doctype html><html><body><h1>Livt FPGA Web</h1></body></html>".Encode()
+		var bodyLength = 64
+		var bodyOffset = this.generator.GetBodyFrameOffset(bodyLength)
+		var frameLength = this.generator.GetResponseFrameLength(bodyLength)
+
+		assert this.generator.GetResponseByteAtFrameOffset(53, bodyLength, 0x00) == 0x00
+		assert this.generator.GetResponseByteAtFrameOffset(54, bodyLength, 0x00) == status[0]
+		var bodyOffsetMinus1: int = 0
+		bodyOffsetMinus1 = bodyOffset - 1
+		var frameLengthMinus1: int = 0
+		frameLengthMinus1 = frameLength - 1
+		assert this.generator.GetResponseByteAtFrameOffset(bodyOffsetMinus1, bodyLength, 0x00) == 0x0A
+		assert this.generator.GetResponseByteAtFrameOffset(bodyOffset, bodyLength, content[0]) == content[0]
+		assert this.generator.GetResponseByteAtFrameOffset(frameLengthMinus1, bodyLength, 0x0A) == 0x0A
+		assert this.generator.GetResponseByteAtFrameOffset(frameLength, bodyLength, 0x00) == 0x00
+	}
+}

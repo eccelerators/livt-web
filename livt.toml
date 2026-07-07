@@ -1,0 +1,21 @@
+[project]
+name = "Livt.Web"
+version = "0.1.0"
+path = "src"
+outdir = "out"
+
+[tests]
+path = "tests"
+components = [
+	"HttpGetRootRecognizerTest",
+	"HttpGetRecognizerTest",
+	"HttpRequestRecognizerTest",
+	"HttpResponseGeneratorTest",
+	"HttpResponseFrameComposerTest",
+	"HttpServerTest",
+	"NetworkEndpointTest",
+	"WebServerTest"
+]
+
+[dependencies]
+Livt.Net = "0.26.0"

@@ -1,0 +1,62 @@
+namespace Livt.Web.Tests.Http
+
+using Livt.Web.Http
+
+@Test
+component HttpGetRootRecognizerTest
+{
+	recognizer: HttpGetRootRecognizer
+
+	new()
+	{
+		this.recognizer = new HttpGetRootRecognizer()
+	}
+
+	@Test
+	fn DetectsGetRootAtTcpPayload()
+	{
+		var frame: byte[128]
+		var httpGetRoot = "GET / ".Encode()
+
+		frame[54] = httpGetRoot[0]
+		frame[55] = httpGetRoot[1]
+		frame[56] = httpGetRoot[2]
+		frame[57] = httpGetRoot[3]
+		frame[58] = httpGetRoot[4]
+		frame[59] = httpGetRoot[5]
+
+		assert this.recognizer.IsGetRoot(frame, 54) == true
+	}
+
+	@Test
+	fn RejectsOtherPath()
+	{
+		var frame: byte[128]
+		var httpGetOtherPath = "GET /x".Encode()
+
+		frame[54] = httpGetOtherPath[0]
+		frame[55] = httpGetOtherPath[1]
+		frame[56] = httpGetOtherPath[2]
+		frame[57] = httpGetOtherPath[3]
+		frame[58] = httpGetOtherPath[4]
+		frame[59] = httpGetOtherPath[5]
+
+		assert this.recognizer.IsGetRoot(frame, 54) == false
+	}
+
+	@Test
+	fn RejectsPost()
+	{
+		var frame: byte[128]
+		var httpPostRoot = "POST /".Encode()
+
+		frame[54] = httpPostRoot[0]
+		frame[55] = httpPostRoot[1]
+		frame[56] = httpPostRoot[2]
+		frame[57] = httpPostRoot[3]
+		frame[58] = httpPostRoot[4]
+		frame[59] = httpPostRoot[5]
+
+		assert this.recognizer.IsGetRoot(frame, 54) == false
+	}
+}

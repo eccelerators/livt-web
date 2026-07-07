@@ -1,0 +1,162 @@
+namespace Livt.Web.Tests.Http
+
+using Livt.Web.Http
+using Livt.Net
+
+@Test
+component HttpResponseFrameComposerTest
+{
+	composer: HttpResponseFrameComposer
+
+	new()
+	{
+		this.composer = new HttpResponseFrameComposer()
+	}
+
+	@Test
+	fn ExposesFixedResponseFrameLength()
+	{
+		var bodyLength = 64
+
+		assert this.composer.GetFrameLength(bodyLength) == 54 + 64 + bodyLength
+	}
+
+	@Test
+	fn BuildsEthernetIpv4AndTcpHeaders()
+	{
+		var bodyLength = 64
+		var ipv4TotalLength = 40 + 64 + bodyLength
+		var request: byte[128]
+		var clientMac: byte[6]
+		clientMac[0] = 0x02
+		clientMac[1] = 0x10
+		clientMac[2] = 0x20
+		clientMac[3] = 0x30
+		clientMac[4] = 0x40
+		clientMac[5] = 0x50
+		var localMac: byte[6]
+		localMac[0] = 0x02
+		localMac[1] = 0xAA
+		localMac[2] = 0xBB
+		localMac[3] = 0xCC
+		localMac[4] = 0xDD
+		localMac[5] = 0xEE
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+		var clientIp: byte[4]
+		clientIp[0] = 0x0A
+		clientIp[1] = 0x00
+		clientIp[2] = 0x00
+		clientIp[3] = 0x02
+		var clientPort: byte[2]
+		clientPort[0] = 0xC0
+		clientPort[1] = 0x01
+		var localPort: byte[2]
+		localPort[0] = 0x00
+		localPort[1] = 0x50
+		var ipv4Checksum: byte[2]
+		ipv4Checksum[0] = 0x12
+		ipv4Checksum[1] = 0x34
+		var tcpSequence: byte[4]
+		tcpSequence[0] = 0x11
+		tcpSequence[1] = 0x22
+		tcpSequence[2] = 0x33
+		tcpSequence[3] = 0x44
+		var acknowledgment: byte[4]
+		acknowledgment[0] = 0xAA
+		acknowledgment[1] = 0xBB
+		acknowledgment[2] = 0xCC
+		acknowledgment[3] = 0xDD
+		var window: byte[2]
+		window[0] = 0x04
+		window[1] = 0x00
+		var tcpChecksum: byte[2]
+		tcpChecksum[0] = 0xBE
+		tcpChecksum[1] = 0xEF
+
+		request[6] = clientMac[0]
+		request[7] = clientMac[1]
+		request[8] = clientMac[2]
+		request[9] = clientMac[3]
+		request[10] = clientMac[4]
+		request[11] = clientMac[5]
+		request[26] = clientIp[0]
+		request[27] = clientIp[1]
+		request[28] = clientIp[2]
+		request[29] = clientIp[3]
+		request[34] = clientPort[0]
+		request[35] = clientPort[1]
+		request[36] = localPort[0]
+		request[37] = localPort[1]
+
+		assert this.composer.GetFrameByte(request, 0, bodyLength, localMac, localIp, ipv4Checksum, tcpSequence, acknowledgment, 0x18, window, tcpChecksum, 0x00) == 0x02
+		assert this.composer.GetFrameByte(request, 6, bodyLength, localMac, localIp, ipv4Checksum, tcpSequence, acknowledgment, 0x18, window, tcpChecksum, 0x00) == 0x02
+		assert this.composer.GetFrameByte(request, 12, bodyLength, localMac, localIp, ipv4Checksum, tcpSequence, acknowledgment, 0x18, window, tcpChecksum, 0x00) == 0x08
+		assert this.composer.GetFrameByte(request, 14, bodyLength, localMac, localIp, ipv4Checksum, tcpSequence, acknowledgment, 0x18, window, tcpChecksum, 0x00) == 0x45
+		var ipv4TotalLengthHigh: byte = (ipv4TotalLength / 256) as byte
+		var ipv4TotalLengthLow: byte = (ipv4TotalLength % 256) as byte
+		assert this.composer.GetFrameByte(request, 16, bodyLength, localMac, localIp, ipv4Checksum, tcpSequence, acknowledgment, 0x18, window, tcpChecksum, 0x00) == ipv4TotalLengthHigh
+		assert this.composer.GetFrameByte(request, 17, bodyLength, localMac, localIp, ipv4Checksum, tcpSequence, acknowledgment, 0x18, window, tcpChecksum, 0x00) == ipv4TotalLengthLow
+		assert this.composer.GetFrameByte(request, 24, bodyLength, localMac, localIp, ipv4Checksum, tcpSequence, acknowledgment, 0x18, window, tcpChecksum, 0x00) == 0x12
+		assert this.composer.GetFrameByte(request, 30, bodyLength, localMac, localIp, ipv4Checksum, tcpSequence, acknowledgment, 0x18, window, tcpChecksum, 0x00) == 0x0A
+		assert this.composer.GetFrameByte(request, 34, bodyLength, localMac, localIp, ipv4Checksum, tcpSequence, acknowledgment, 0x18, window, tcpChecksum, 0x00) == 0x00
+		assert this.composer.GetFrameByte(request, 36, bodyLength, localMac, localIp, ipv4Checksum, tcpSequence, acknowledgment, 0x18, window, tcpChecksum, 0x00) == 0xC0
+		assert this.composer.GetFrameByte(request, 38, bodyLength, localMac, localIp, ipv4Checksum, tcpSequence, acknowledgment, 0x18, window, tcpChecksum, 0x00) == 0x11
+		assert this.composer.GetFrameByte(request, 47, bodyLength, localMac, localIp, ipv4Checksum, tcpSequence, acknowledgment, 0x18, window, tcpChecksum, 0x00) == 0x18
+		assert this.composer.GetFrameByte(request, 50, bodyLength, localMac, localIp, ipv4Checksum, tcpSequence, acknowledgment, 0x18, window, tcpChecksum, 0x00) == 0xBE
+	}
+
+	@Test
+	fn AppendsHttpResponseBytes()
+	{
+		var request: byte[128]
+		var content = "<!doctype html><html><body><h1>Livt FPGA Web</h1></body></html>".Encode()
+		var bodyLength = 64
+		var bodyOffset = 54 + 64
+		var localMac: byte[6]
+		localMac[0] = 0x02
+		localMac[1] = 0xAA
+		localMac[2] = 0xBB
+		localMac[3] = 0xCC
+		localMac[4] = 0xDD
+		localMac[5] = 0xEE
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+		var ipv4Checksum: byte[2]
+		ipv4Checksum[0] = 0x12
+		ipv4Checksum[1] = 0x34
+		var tcpSequence: byte[4]
+		tcpSequence[0] = 0x11
+		tcpSequence[1] = 0x22
+		tcpSequence[2] = 0x33
+		tcpSequence[3] = 0x44
+		var acknowledgment: byte[4]
+		acknowledgment[0] = 0xAA
+		acknowledgment[1] = 0xBB
+		acknowledgment[2] = 0xCC
+		acknowledgment[3] = 0xDD
+		var window: byte[2]
+		window[0] = 0x04
+		window[1] = 0x00
+		var tcpChecksum: byte[2]
+		tcpChecksum[0] = 0xBE
+		tcpChecksum[1] = 0xEF
+
+		assert this.composer.GetFrameByte(request, 54, bodyLength, localMac, localIp, ipv4Checksum, tcpSequence, acknowledgment, 0x18, window, tcpChecksum, 0x00) == 0x48
+		var bodyOffsetMinus1: int = 0
+		bodyOffsetMinus1 = bodyOffset - 1
+		assert this.composer.GetFrameByte(request, bodyOffsetMinus1, bodyLength, localMac, localIp, ipv4Checksum, tcpSequence, acknowledgment, 0x18, window, tcpChecksum, 0x00) == 0x0A
+		assert this.composer.GetFrameByte(request, bodyOffset, bodyLength, localMac, localIp, ipv4Checksum, tcpSequence, acknowledgment, 0x18, window, tcpChecksum, content[0]) == content[0]
+		var frameLength = this.composer.GetFrameLength(bodyLength)
+		var frameLengthMinus1: int = 0
+		frameLengthMinus1 = frameLength - 1
+		assert this.composer.GetFrameByte(request, frameLengthMinus1, bodyLength, localMac, localIp, ipv4Checksum, tcpSequence, acknowledgment, 0x18, window, tcpChecksum, 0x0A) == 0x0A
+		assert this.composer.GetFrameByte(request, frameLength, bodyLength, localMac, localIp, ipv4Checksum, tcpSequence, acknowledgment, 0x18, window, tcpChecksum, 0x00) == 0x00
+	}
+}
