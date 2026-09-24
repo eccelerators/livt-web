@@ -1,6 +1,6 @@
 [project]
 name = "Livt.Web"
-version = "0.1.0"
+version = "1.0.0-dev"
 path = "src"
 outdir = "out"
 
@@ -12,10 +12,11 @@ components = [
 	"HttpRequestRecognizerTest",
 	"HttpResponseGeneratorTest",
 	"HttpResponseFrameComposerTest",
+	"HttpResponseFailureTest",
 	"HttpServerTest",
 	"NetworkEndpointTest",
 	"WebServerTest"
 ]
 
 [dependencies]
-Livt.Net = "0.26.0"
+"Livt.Net" = { path = "../livt-net" }

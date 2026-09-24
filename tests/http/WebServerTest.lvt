@@ -8,25 +8,24 @@ component WebServerTest
 {
 	const INDEX_HTML: byte[] = "<!doctype html><html><body><h1>Livt FPGA Web</h1></body></html>\n".Encode()
 
-	frameIo: EthernetFrameIo
-	axi: Axi4LiteEthernetLiteAdapter
+	fixture: byte[128]
+	arpData: ArrayPacketData<1514>
+	arpTx: TestFrameTransmitter<ArrayPacketData<1514>>
+	responseData: ArrayPacketData<1514>
+	responseTx: TestFrameTransmitter<ArrayPacketData<1514>>
+	receiver: TestFrameReceiver<128>
 
-	server: WebServer
+	content: TestHttpContent
+	server: WebServer<TestHttpContent>
 	generator: HttpResponseGenerator
 
 	new()
 	{
-		var frameIoMac: byte[6]
-		frameIoMac[0] = 0x02
-		frameIoMac[1] = 0xAA
-		frameIoMac[2] = 0xBB
-		frameIoMac[3] = 0xCC
-		frameIoMac[4] = 0xDD
-		frameIoMac[5] = 0xEE
-		this.axi = new Axi4LiteEthernetLiteAdapter()
-		this.frameIo = new EthernetFrameIo(
-			this.axi,
-			frameIoMac)
+		this.receiver = new TestFrameReceiver<128>()
+		this.arpData = new ArrayPacketData<1514>()
+		this.responseData = new ArrayPacketData<1514>()
+		this.arpTx = new TestFrameTransmitter<ArrayPacketData<1514>>(this.arpData)
+		this.responseTx = new TestFrameTransmitter<ArrayPacketData<1514>>(this.responseData)
 		this.generator = new HttpResponseGenerator()
 		var localMac: byte[6]
 		localMac[0] = 0x02
@@ -43,180 +42,223 @@ component WebServerTest
 		var localPort: byte[2]
 		localPort[0] = 0x00
 		localPort[1] = 0x50
-		this.server = new WebServer(localMac, localIp, localPort)
+		this.content = new TestHttpContent()
+		this.server = new WebServer<TestHttpContent>(this.content, localMac, localIp, localPort)
+	}
+
+	fn LoadFixtureByte(index: int, value: byte)
+	{
+		this.fixture[index] = value
+	}
+
+	fn SubmitFixture()
+	{
+		for (var i = 0; i < 128; i++) {
+			assert this.receiver.InjectByte(i, this.fixture[i]) == FrameLinkResult.Success
+		}
+
+		assert this.receiver.Publish(true, 128) == FrameLinkResult.Success
+		assert this.receiver.TryAcquire() == FrameLinkResult.Success
 	}
 
 	fn CopyFrameToServer()
 	{
 		this.server.BeginFrame()
 
-		for (var i = 0; i < 128; i++)
-		{
-			var value = this.frameIo.GetRxByte(i)
+		for (var i = 0; i < 128; i++) {
+			var value: byte = 0x00
+			assert this.receiver.TryRead(i, value) == PacketDataResult.Success
 			this.server.LoadRxByte(i, value)
 		}
 
-		this.frameIo.ConsumeRxFrame()
+		assert this.receiver.TryRelease() == FrameLinkResult.Success
 		this.server.HandleFrame()
 	}
 
 	fn CopyResponseToTxFrame()
 	{
 		var responseLength = this.server.GetResponseLength()
-		this.frameIo.BeginTxFrame(responseLength)
+		assert this.responseData.TryClear() == PacketDataResult.Success
 
-		for (var i = 0; i < responseLength; i++)
-		{
-			var httpBodyByte: logic[8] = 0x00
-
-			if (this.server.IsHttpBodyFrameIndex(i))
-			{
-				var bodyIndex = this.server.GetHttpBodyIndex(i)
-				httpBodyByte = INDEX_HTML[bodyIndex]
-			}
-
-			var responseByte = this.server.GetResponseByte(i, httpBodyByte)
-			this.frameIo.WriteTxByte(i, responseByte)
+		for (var i = 0; i < responseLength; i++) {
+			var responseByte = this.ReadResponse(i)
+			assert this.responseData.TryWrite(i, responseByte as byte) == PacketDataResult.Success
 		}
 
-		this.frameIo.SubmitTxFrame()
+		assert this.responseData.TryPublish() == PacketDataResult.Success
+		assert this.responseTx.TrySubmit() == FrameLinkResult.Accepted
+
+		for (var i = 0; i <= responseLength; i++) {
+			this.responseTx.Advance()
+		}
+	}
+
+	fn CopyArpResponseToTxFrame()
+	{
+		var responseLength = this.server.GetResponseLength()
+		assert this.arpData.TryClear() == PacketDataResult.Success
+
+		for (var i = 0; i < responseLength; i++) {
+			var responseByte = this.ReadResponse(i)
+			assert this.arpData.TryWrite(i, responseByte as byte) == PacketDataResult.Success
+		}
+
+		assert this.arpData.TryPublish() == PacketDataResult.Success
+		assert this.arpTx.TrySubmit() == FrameLinkResult.Accepted
+
+		for (var i = 0; i <= responseLength; i++) {
+			this.arpTx.Advance()
+		}
 	}
 
 	fn LoadEtherType(etherType: byte[2])
 	{
-		this.frameIo.LoadRxByte(12, etherType[0])
-		this.frameIo.LoadRxByte(13, etherType[1])
+		this.LoadFixtureByte(12, etherType[0])
+		this.LoadFixtureByte(13, etherType[1])
 	}
 
 	fn LoadEthernetSourceMac(sourceMac: byte[6])
 	{
-		this.frameIo.LoadRxByte(6, sourceMac[0])
-		this.frameIo.LoadRxByte(7, sourceMac[1])
-		this.frameIo.LoadRxByte(8, sourceMac[2])
-		this.frameIo.LoadRxByte(9, sourceMac[3])
-		this.frameIo.LoadRxByte(10, sourceMac[4])
-		this.frameIo.LoadRxByte(11, sourceMac[5])
+		this.LoadFixtureByte(6, sourceMac[0])
+		this.LoadFixtureByte(7, sourceMac[1])
+		this.LoadFixtureByte(8, sourceMac[2])
+		this.LoadFixtureByte(9, sourceMac[3])
+		this.LoadFixtureByte(10, sourceMac[4])
+		this.LoadFixtureByte(11, sourceMac[5])
 	}
 
 	fn LoadArpEthernetIpv4RequestHeader(header: byte[8])
 	{
-		this.frameIo.LoadRxByte(14, header[0])
-		this.frameIo.LoadRxByte(15, header[1])
-		this.frameIo.LoadRxByte(16, header[2])
-		this.frameIo.LoadRxByte(17, header[3])
-		this.frameIo.LoadRxByte(18, header[4])
-		this.frameIo.LoadRxByte(19, header[5])
-		this.frameIo.LoadRxByte(20, header[6])
-		this.frameIo.LoadRxByte(21, header[7])
+		this.LoadFixtureByte(12, 0x08)
+		this.LoadFixtureByte(13, 0x06)
+		this.LoadFixtureByte(14, header[0])
+		this.LoadFixtureByte(15, header[1])
+		this.LoadFixtureByte(16, header[2])
+		this.LoadFixtureByte(17, header[3])
+		this.LoadFixtureByte(18, header[4])
+		this.LoadFixtureByte(19, header[5])
+		this.LoadFixtureByte(20, header[6])
+		this.LoadFixtureByte(21, header[7])
 	}
 
 	fn LoadArpSenderMac(senderMac: byte[6])
 	{
-		this.frameIo.LoadRxByte(22, senderMac[0])
-		this.frameIo.LoadRxByte(23, senderMac[1])
-		this.frameIo.LoadRxByte(24, senderMac[2])
-		this.frameIo.LoadRxByte(25, senderMac[3])
-		this.frameIo.LoadRxByte(26, senderMac[4])
-		this.frameIo.LoadRxByte(27, senderMac[5])
+		this.LoadFixtureByte(22, senderMac[0])
+		this.LoadFixtureByte(23, senderMac[1])
+		this.LoadFixtureByte(24, senderMac[2])
+		this.LoadFixtureByte(25, senderMac[3])
+		this.LoadFixtureByte(26, senderMac[4])
+		this.LoadFixtureByte(27, senderMac[5])
 	}
 
 	fn LoadArpSenderIp(senderIp: byte[4])
 	{
-		this.frameIo.LoadRxByte(28, senderIp[0])
-		this.frameIo.LoadRxByte(29, senderIp[1])
-		this.frameIo.LoadRxByte(30, senderIp[2])
-		this.frameIo.LoadRxByte(31, senderIp[3])
+		this.LoadFixtureByte(28, senderIp[0])
+		this.LoadFixtureByte(29, senderIp[1])
+		this.LoadFixtureByte(30, senderIp[2])
+		this.LoadFixtureByte(31, senderIp[3])
 	}
 
 	fn LoadArpTargetIp(targetIp: byte[4])
 	{
-		this.frameIo.LoadRxByte(38, targetIp[0])
-		this.frameIo.LoadRxByte(39, targetIp[1])
-		this.frameIo.LoadRxByte(40, targetIp[2])
-		this.frameIo.LoadRxByte(41, targetIp[3])
+		this.LoadFixtureByte(38, targetIp[0])
+		this.LoadFixtureByte(39, targetIp[1])
+		this.LoadFixtureByte(40, targetIp[2])
+		this.LoadFixtureByte(41, targetIp[3])
 	}
 
 	fn LoadIpv4FixedTcpHeader(ipHeader: byte[4])
 	{
-		this.frameIo.LoadRxByte(14, ipHeader[0])
-		this.frameIo.LoadRxByte(20, ipHeader[1])
-		this.frameIo.LoadRxByte(21, ipHeader[2])
-		this.frameIo.LoadRxByte(23, ipHeader[3])
+		this.LoadFixtureByte(16, 0x00)
+		this.LoadFixtureByte(17, 0x28)
+		this.LoadFixtureByte(14, ipHeader[0])
+		this.LoadFixtureByte(20, ipHeader[1])
+		this.LoadFixtureByte(21, ipHeader[2])
+		this.LoadFixtureByte(23, ipHeader[3])
 	}
 
 	fn LoadIpv4SourceIp(sourceIp: byte[4])
 	{
-		this.frameIo.LoadRxByte(26, sourceIp[0])
-		this.frameIo.LoadRxByte(27, sourceIp[1])
-		this.frameIo.LoadRxByte(28, sourceIp[2])
-		this.frameIo.LoadRxByte(29, sourceIp[3])
+		this.LoadFixtureByte(26, sourceIp[0])
+		this.LoadFixtureByte(27, sourceIp[1])
+		this.LoadFixtureByte(28, sourceIp[2])
+		this.LoadFixtureByte(29, sourceIp[3])
 	}
 
 	fn LoadIpv4DestinationIp(destinationIp: byte[4])
 	{
-		this.frameIo.LoadRxByte(30, destinationIp[0])
-		this.frameIo.LoadRxByte(31, destinationIp[1])
-		this.frameIo.LoadRxByte(32, destinationIp[2])
-		this.frameIo.LoadRxByte(33, destinationIp[3])
+		this.LoadFixtureByte(30, destinationIp[0])
+		this.LoadFixtureByte(31, destinationIp[1])
+		this.LoadFixtureByte(32, destinationIp[2])
+		this.LoadFixtureByte(33, destinationIp[3])
 	}
 
 	fn LoadTcpSourcePort(sourcePort: byte[2])
 	{
-		this.frameIo.LoadRxByte(34, sourcePort[0])
-		this.frameIo.LoadRxByte(35, sourcePort[1])
+		this.LoadFixtureByte(34, sourcePort[0])
+		this.LoadFixtureByte(35, sourcePort[1])
 	}
 
 	fn LoadTcpDestinationPort(destinationPort: byte[2])
 	{
-		this.frameIo.LoadRxByte(36, destinationPort[0])
-		this.frameIo.LoadRxByte(37, destinationPort[1])
+		this.LoadFixtureByte(36, destinationPort[0])
+		this.LoadFixtureByte(37, destinationPort[1])
 	}
 
 	fn LoadTcpSeqNum(seqNum: byte[4])
 	{
-		this.frameIo.LoadRxByte(38, seqNum[0])
-		this.frameIo.LoadRxByte(39, seqNum[1])
-		this.frameIo.LoadRxByte(40, seqNum[2])
-		this.frameIo.LoadRxByte(41, seqNum[3])
+		this.LoadFixtureByte(38, seqNum[0])
+		this.LoadFixtureByte(39, seqNum[1])
+		this.LoadFixtureByte(40, seqNum[2])
+		this.LoadFixtureByte(41, seqNum[3])
 	}
 
 	fn LoadTcpDataOffsetAndFlags(dataOffsetAndFlags: byte[2])
 	{
-		this.frameIo.LoadRxByte(46, dataOffsetAndFlags[0])
-		this.frameIo.LoadRxByte(47, dataOffsetAndFlags[1])
+		this.LoadFixtureByte(46, dataOffsetAndFlags[0])
+		this.LoadFixtureByte(47, dataOffsetAndFlags[1])
 	}
 
 	fn LoadTcpPayload6(payload: byte[6])
 	{
-		this.frameIo.LoadRxByte(54, payload[0])
-		this.frameIo.LoadRxByte(55, payload[1])
-		this.frameIo.LoadRxByte(56, payload[2])
-		this.frameIo.LoadRxByte(57, payload[3])
-		this.frameIo.LoadRxByte(58, payload[4])
-		this.frameIo.LoadRxByte(59, payload[5])
+		this.LoadFixtureByte(17, 0x2E)
+		this.LoadFixtureByte(54, payload[0])
+		this.LoadFixtureByte(55, payload[1])
+		this.LoadFixtureByte(56, payload[2])
+		this.LoadFixtureByte(57, payload[3])
+		this.LoadFixtureByte(58, payload[4])
+		this.LoadFixtureByte(59, payload[5])
 	}
 
 	@Test
 	fn IgnoresUnsupportedFrame()
 	{
+		for (var i = 0; i < 128; i++) {
+			this.fixture[i] = 0x00
+		}
+
 		var unsupportedEtherType: byte[2]
 		unsupportedEtherType[0] = 0x12
 		unsupportedEtherType[1] = 0x34
 
 		this.LoadEtherType(unsupportedEtherType)
-		this.frameIo.SubmitRxFrame()
+		this.SubmitFixture()
 
 		this.CopyFrameToServer()
 
 		assert this.server.HasResponse() == false
 		assert this.server.GetResponseKind() == 0
 		assert this.server.GetResponseLength() == 0
-		assert this.frameIo.HasTxFrame() == false
+		assert this.responseData.IsReady() == false
 	}
 
 	@Test
 	fn RespondsToArpRequest()
 	{
+		for (var i = 0; i < 128; i++) {
+			this.fixture[i] = 0x00
+		}
+
 		var arpEthernetIpv4Request: byte[8]
 		arpEthernetIpv4Request[0] = 0x00
 		arpEthernetIpv4Request[1] = 0x01
@@ -251,38 +293,42 @@ component WebServerTest
 		this.LoadArpSenderMac(clientMac)
 		this.LoadArpSenderIp(clientIp)
 		this.LoadArpTargetIp(localIp)
-		this.frameIo.SubmitRxFrame()
+		this.SubmitFixture()
 
 		this.CopyFrameToServer()
 
 		assert this.server.HasResponse() == true
 		assert this.server.GetResponseKind() == 1
 		assert this.server.GetResponseLength() == 60
-		assert this.server.GetResponseByte(0, 0x00) == 0x02
-		assert this.server.GetResponseByte(5, 0x00) == 0x50
-		assert this.server.GetResponseByte(6, 0x00) == 0x02
-		assert this.server.GetResponseByte(7, 0x00) == 0xAA
-		assert this.server.GetResponseByte(12, 0x00) == 0x08
-		assert this.server.GetResponseByte(13, 0x00) == 0x06
-		assert this.server.GetResponseByte(21, 0x00) == 0x02
+		assert this.ReadResponse(0) == 0x02
+		assert this.ReadResponse(5) == 0x50
+		assert this.ReadResponse(6) == 0x02
+		assert this.ReadResponse(7) == 0xAA
+		assert this.ReadResponse(12) == 0x08
+		assert this.ReadResponse(13) == 0x06
+		assert this.ReadResponse(21) == 0x02
 
-		this.CopyResponseToTxFrame()
+		this.CopyArpResponseToTxFrame()
 
-		assert this.frameIo.HasTxFrame() == true
-		assert this.frameIo.GetTxLength() == 60
-		assert this.frameIo.GetTxByte(0) == 0x02
-		assert this.frameIo.GetTxByte(5) == 0x50
-		assert this.frameIo.GetTxByte(6) == 0x02
-		assert this.frameIo.GetTxByte(7) == 0xAA
-		assert this.frameIo.GetTxByte(12) == 0x08
-		assert this.frameIo.GetTxByte(13) == 0x06
-		assert this.frameIo.GetTxByte(21) == 0x02
+		assert this.arpData.IsReady() == true
+		assert this.arpTx.GetCapturedLength() == 60
+		assert this.ReadarpTx(0) == 0x02
+		assert this.ReadarpTx(5) == 0x50
+		assert this.ReadarpTx(6) == 0x02
+		assert this.ReadarpTx(7) == 0xAA
+		assert this.ReadarpTx(12) == 0x08
+		assert this.ReadarpTx(13) == 0x06
+		assert this.ReadarpTx(21) == 0x02
 	}
 
 	@Test
 	fn RespondsToHttpGetRootRequest()
 	{
-		this.server.SetBodyConfig(1, 64, 717318)
+		for (var i = 0; i < 128; i++) {
+			this.fixture[i] = 0x00
+		}
+
+		this.content.Configure(1, 64)
 
 		var httpGetRoot = "GET / ".Encode()
 		var response = "HTTP/1.0 200 OK".Encode()
@@ -346,7 +392,7 @@ component WebServerTest
 		this.LoadTcpDestinationPort(httpPort)
 		this.LoadTcpSeqNum(clientSeq)
 		this.LoadTcpDataOffsetAndFlags(tcpSyn)
-		this.frameIo.SubmitRxFrame()
+		this.SubmitFixture()
 
 		this.CopyFrameToServer()
 
@@ -358,7 +404,7 @@ component WebServerTest
 		tcpAck[1] = 0x10
 
 		this.LoadTcpDataOffsetAndFlags(tcpAck)
-		this.frameIo.SubmitRxFrame()
+		this.SubmitFixture()
 
 		this.CopyFrameToServer()
 
@@ -369,7 +415,7 @@ component WebServerTest
 
 		this.LoadTcpDataOffsetAndFlags(tcpPshAck)
 		this.LoadTcpPayload6(httpGetRoot)
-		this.frameIo.SubmitRxFrame()
+		this.SubmitFixture()
 
 		this.CopyFrameToServer()
 
@@ -380,32 +426,56 @@ component WebServerTest
 		assert this.server.HasResponse() == true
 		assert this.server.GetResponseKind() == 4
 		assert this.server.GetResponseLength() == expectedResponseLength
-		assert this.server.GetResponseByte(0, 0x00) == 0x02
-		assert this.server.GetResponseByte(6, 0x00) == 0x02
-		assert this.server.GetResponseByte(12, 0x00) == 0x08
-		assert this.server.GetResponseByte(14, 0x00) == 0x45
-		assert this.server.GetResponseByte(24, 0x00) == 0x26
-			assert this.server.GetResponseByte(25, 0x00) == 0x4D
-		assert this.server.GetResponseByte(34, 0x00) == 0x00
-		assert this.server.GetResponseByte(36, 0x00) == 0xC0
-		assert this.server.GetResponseByte(47, 0x00) == 0x19
-		assert this.server.GetResponseByte(54, 0x00) == response[0]
-		assert this.server.GetResponseByte(bodyOffset, content[0]) == content[0]
+		assert this.ReadResponse(0) == 0x02
+		assert this.ReadResponse(6) == 0x02
+		assert this.ReadResponse(12) == 0x08
+		assert this.ReadResponse(14) == 0x45
+		assert this.ReadResponse(24) == 0x26
+		assert this.ReadResponse(25) == 0x4D
+		assert this.ReadResponse(34) == 0x00
+		assert this.ReadResponse(36) == 0xC0
+		assert this.ReadResponse(47) == 0x19
+		assert this.ReadResponse(54) == response[0]
+		assert this.ReadResponse(bodyOffset) == content[0]
 
 		this.CopyResponseToTxFrame()
 
-		assert this.frameIo.HasTxFrame() == true
-		assert this.frameIo.GetTxLength() == expectedResponseLength
-		assert this.frameIo.GetTxByte(0) == 0x02
-		assert this.frameIo.GetTxByte(6) == 0x02
-		assert this.frameIo.GetTxByte(12) == 0x08
-		assert this.frameIo.GetTxByte(14) == 0x45
-		assert this.frameIo.GetTxByte(24) == 0x26
-			assert this.frameIo.GetTxByte(25) == 0x4D
-		assert this.frameIo.GetTxByte(34) == 0x00
-		assert this.frameIo.GetTxByte(36) == 0xC0
-		assert this.frameIo.GetTxByte(47) == 0x19
-		assert this.frameIo.GetTxByte(54) == response[0]
-		assert this.frameIo.GetTxByte(bodyOffset) == content[0]
+		assert this.responseData.IsReady() == true
+		assert this.responseTx.GetCapturedLength() == expectedResponseLength
+		assert this.ReadresponseTx(0) == 0x02
+		assert this.ReadresponseTx(6) == 0x02
+		assert this.ReadresponseTx(12) == 0x08
+		assert this.ReadresponseTx(14) == 0x45
+		assert this.ReadresponseTx(24) == 0x26
+		assert this.ReadresponseTx(25) == 0x4D
+		assert this.ReadresponseTx(34) == 0x00
+		assert this.ReadresponseTx(36) == 0xC0
+		assert this.ReadresponseTx(47) == 0x19
+		assert this.ReadresponseTx(54) == response[0]
+		assert this.ReadresponseTx(bodyOffset) == content[0]
+	}
+
+	/** Reads independently captured bytes from the device-independent transmitter. */
+	fn ReadresponseTx(index: int) byte
+	{
+		var value: byte = 0x00
+		assert this.responseTx.TryReadCaptured(index, value) == PacketDataResult.Success
+		return value
+	}
+
+	/** Reads independently captured bytes from the device-independent transmitter. */
+	fn ReadarpTx(index: int) byte
+	{
+		var value: byte = 0x00
+		assert this.arpTx.TryReadCaptured(index, value) == PacketDataResult.Success
+		return value
+	}
+
+	/** A checked read keeps legacy response assertions concise without masking errors. */
+	fn ReadResponse(index: int) byte
+	{
+		var value: byte = 0x00
+		assert this.server.TryReadResponse(index, value) == PacketDataResult.Success
+		return value
 	}
 }

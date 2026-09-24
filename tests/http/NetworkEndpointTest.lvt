@@ -6,7 +6,8 @@ using Livt.Net
 @Test
 component NetworkEndpointTest
 {
-	endpoint: NetworkEndpoint
+	content: TestHttpContent
+	endpoint: NetworkEndpoint<TestHttpContent>
 
 	new()
 	{
@@ -25,21 +26,23 @@ component NetworkEndpointTest
 		var localPort: byte[2]
 		localPort[0] = 0x00
 		localPort[1] = 0x50
-		this.endpoint = new NetworkEndpoint(localMac, localIp, localPort)
+		this.content = new TestHttpContent()
+		this.endpoint = new NetworkEndpoint<TestHttpContent>(this.content, localMac, localIp, localPort)
 	}
 
 	fn BeginEmptyFrame()
 	{
 		this.endpoint.BeginFrame()
 
-		for (var i = 0; i < 128; i++)
-		{
+		for (var i = 0; i < 128; i++) {
 			this.endpoint.LoadRxByte(i, 0x00)
 		}
 	}
 
 	fn LoadArpEthernetIpv4RequestHeader()
 	{
+		this.endpoint.LoadRxByte(12, 0x08)
+		this.endpoint.LoadRxByte(13, 0x06)
 		this.endpoint.LoadRxByte(14, 0x00)
 		this.endpoint.LoadRxByte(15, 0x01)
 		this.endpoint.LoadRxByte(16, 0x08)
@@ -74,67 +77,228 @@ component NetworkEndpointTest
 
 	fn GetIcmpRequestByte(index: int) byte
 	{
-		if (index == 0) { return 0x02 }
-		if (index == 1) { return 0x55 }
-		if (index == 2) { return 0x66 }
-		if (index == 3) { return 0x77 }
-		if (index == 4) { return 0x11 }
-		if (index == 5) { return 0x22 }
-		if (index == 6) { return 0x02 }
-		if (index == 7) { return 0x10 }
-		if (index == 8) { return 0x20 }
-		if (index == 9) { return 0x30 }
-		if (index == 10) { return 0x40 }
-		if (index == 11) { return 0x50 }
-		if (index == 12) { return 0x08 }
-		if (index == 13) { return 0x00 }
-		if (index == 14) { return 0x45 }
-		if (index == 15) { return 0x00 }
-		if (index == 16) { return 0x00 }
-		if (index == 17) { return 0x28 }
-		if (index == 18) { return 0x12 }
-		if (index == 19) { return 0x34 }
-		if (index == 20) { return 0x40 }
-		if (index == 21) { return 0x00 }
-		if (index == 22) { return 0x40 }
-		if (index == 23) { return 0x01 }
-		if (index == 24) { return 0x00 }
-		if (index == 25) { return 0x00 }
-		if (index == 26) { return 0x0A }
-		if (index == 27) { return 0x00 }
-		if (index == 28) { return 0x00 }
-		if (index == 29) { return 0x02 }
-		if (index == 30) { return 0x0A }
-		if (index == 31) { return 0x00 }
-		if (index == 32) { return 0x00 }
-		if (index == 33) { return 0x01 }
-		if (index == 34) { return 0x08 }
-		if (index == 35) { return 0x00 }
-		if (index == 36) { return 0x7F }
-		if (index == 37) { return 0x5E }
-		if (index == 38) { return 0x12 }
-		if (index == 39) { return 0x34 }
-		if (index == 40) { return 0x00 }
-		if (index == 41) { return 0x01 }
-		if (index == 42) { return 0x61 }
-		if (index == 43) { return 0x62 }
-		if (index == 44) { return 0x63 }
-		if (index == 45) { return 0x64 }
-		if (index == 46) { return 0x65 }
-		if (index == 47) { return 0x66 }
-		if (index == 48) { return 0x67 }
-		if (index == 49) { return 0x68 }
-		if (index == 50) { return 0x69 }
-		if (index == 51) { return 0x6A }
-		if (index == 52) { return 0x6B }
-		if (index == 53) { return 0x6C }
+		if (index == 0) {
+			return 0x02
+		}
+
+		if (index == 1) {
+			return 0x55
+		}
+
+		if (index == 2) {
+			return 0x66
+		}
+
+		if (index == 3) {
+			return 0x77
+		}
+
+		if (index == 4) {
+			return 0x11
+		}
+
+		if (index == 5) {
+			return 0x22
+		}
+
+		if (index == 6) {
+			return 0x02
+		}
+
+		if (index == 7) {
+			return 0x10
+		}
+
+		if (index == 8) {
+			return 0x20
+		}
+
+		if (index == 9) {
+			return 0x30
+		}
+
+		if (index == 10) {
+			return 0x40
+		}
+
+		if (index == 11) {
+			return 0x50
+		}
+
+		if (index == 12) {
+			return 0x08
+		}
+
+		if (index == 13) {
+			return 0x00
+		}
+
+		if (index == 14) {
+			return 0x45
+		}
+
+		if (index == 15) {
+			return 0x00
+		}
+
+		if (index == 16) {
+			return 0x00
+		}
+
+		if (index == 17) {
+			return 0x28
+		}
+
+		if (index == 18) {
+			return 0x12
+		}
+
+		if (index == 19) {
+			return 0x34
+		}
+
+		if (index == 20) {
+			return 0x40
+		}
+
+		if (index == 21) {
+			return 0x00
+		}
+
+		if (index == 22) {
+			return 0x40
+		}
+
+		if (index == 23) {
+			return 0x01
+		}
+
+		if (index == 24) {
+			return 0x00
+		}
+
+		if (index == 25) {
+			return 0x00
+		}
+
+		if (index == 26) {
+			return 0x0A
+		}
+
+		if (index == 27) {
+			return 0x00
+		}
+
+		if (index == 28) {
+			return 0x00
+		}
+
+		if (index == 29) {
+			return 0x02
+		}
+
+		if (index == 30) {
+			return 0x0A
+		}
+
+		if (index == 31) {
+			return 0x00
+		}
+
+		if (index == 32) {
+			return 0x00
+		}
+
+		if (index == 33) {
+			return 0x01
+		}
+
+		if (index == 34) {
+			return 0x08
+		}
+
+		if (index == 35) {
+			return 0x00
+		}
+
+		if (index == 36) {
+			return 0x7F
+		}
+
+		if (index == 37) {
+			return 0x5E
+		}
+
+		if (index == 38) {
+			return 0x12
+		}
+
+		if (index == 39) {
+			return 0x34
+		}
+
+		if (index == 40) {
+			return 0x00
+		}
+
+		if (index == 41) {
+			return 0x01
+		}
+
+		if (index == 42) {
+			return 0x61
+		}
+
+		if (index == 43) {
+			return 0x62
+		}
+
+		if (index == 44) {
+			return 0x63
+		}
+
+		if (index == 45) {
+			return 0x64
+		}
+
+		if (index == 46) {
+			return 0x65
+		}
+
+		if (index == 47) {
+			return 0x66
+		}
+
+		if (index == 48) {
+			return 0x67
+		}
+
+		if (index == 49) {
+			return 0x68
+		}
+
+		if (index == 50) {
+			return 0x69
+		}
+
+		if (index == 51) {
+			return 0x6A
+		}
+
+		if (index == 52) {
+			return 0x6B
+		}
+
+		if (index == 53) {
+			return 0x6C
+		}
+
 		return 0x00
 	}
 
 	fn LoadIcmpEchoRequest()
 	{
-		for (var i = 0; i < 128; i++)
-		{
+		for (var i = 0; i < 128; i++) {
 			var requestByte = this.GetIcmpRequestByte(i)
 			this.endpoint.LoadRxByte(i, requestByte)
 		}
@@ -142,6 +306,8 @@ component NetworkEndpointTest
 
 	fn LoadTcpBaseFrame()
 	{
+		this.endpoint.LoadRxByte(16, 0x00)
+		this.endpoint.LoadRxByte(17, 0x28)
 		this.endpoint.LoadRxByte(6, 0x9C)
 		this.endpoint.LoadRxByte(7, 0xEB)
 		this.endpoint.LoadRxByte(8, 0xE8)
@@ -187,8 +353,8 @@ component NetworkEndpointTest
 		assert this.endpoint.GetResponseKind() == 1
 		assert this.endpoint.GetResponseLength() == 60
 		assert this.endpoint.SawArpRequest() == true
-		assert this.endpoint.GetResponseByte(7, 0x00) == 0xAA
-		assert this.endpoint.GetResponseByte(59, 0x00) == 0x00
+		assert this.ReadResponse(7) == 0xAA
+		assert this.ReadResponse(59) == 0x00
 	}
 
 	@Test
@@ -205,9 +371,9 @@ component NetworkEndpointTest
 		assert this.endpoint.SawIpv4ForLocalIp() == true
 		assert this.endpoint.SawIcmpForLocalIp() == true
 		assert this.endpoint.SawIcmpEcho() == true
-		assert this.endpoint.GetResponseByte(6, 0x00) == 0x02
-		assert this.endpoint.GetResponseByte(7, 0x00) == 0xAA
-		assert this.endpoint.GetResponseByte(34, 0x00) == 0x00
+		assert this.ReadResponse(6) == 0x02
+		assert this.ReadResponse(7) == 0xAA
+		assert this.ReadResponse(34) == 0x00
 	}
 
 	@Test
@@ -225,19 +391,19 @@ component NetworkEndpointTest
 		assert this.endpoint.SawIpv4ForLocalIp() == true
 		assert this.endpoint.SawTcpPacket() == true
 		assert this.endpoint.SawSynRequest() == true
-		assert this.endpoint.GetResponseByte(24, 0x00) == 0x26
-		assert this.endpoint.GetResponseByte(25, 0x00) == 0x69
-		assert this.endpoint.GetResponseByte(42, 0x00) == 0x8F
-		assert this.endpoint.GetResponseByte(45, 0x00) == 0x3A
-		assert this.endpoint.GetResponseByte(50, 0x00) == 0x3F
-		assert this.endpoint.GetResponseByte(51, 0x00) == 0x09
+		assert this.ReadResponse(24) == 0x26
+		assert this.ReadResponse(25) == 0x69
+		assert this.ReadResponse(42) == 0x8F
+		assert this.ReadResponse(45) == 0x3A
+		assert this.ReadResponse(50) == 0x3F
+		assert this.ReadResponse(51) == 0x09
 	}
 
 	@Test
 	fn DispatchesHttpStatusAfterHandshake()
 	{
-		this.endpoint.SetBodyConfig(1, 64, 717318)
-		this.endpoint.SetBodyConfig(3, 451, 4784892)
+		this.content.Configure(1, 64)
+		this.content.Configure(3, 451)
 		this.endpoint.SetRoutePath(3, 3)
 
 		this.BeginEmptyFrame()
@@ -253,11 +419,13 @@ component NetworkEndpointTest
 		this.BeginEmptyFrame()
 		this.LoadTcpBaseFrame()
 		this.endpoint.LoadRxByte(47, 0x18)
+		this.endpoint.LoadRxByte(17, 0x34)
 		var httpGetStatus = "GET /status ".Encode()
-		for (var i = 0; i < 12; i++)
-		{
+
+		for (var i = 0; i < 12; i++) {
 			this.endpoint.LoadRxByte(54 + i, httpGetStatus[i])
 		}
+
 		this.endpoint.HandleFrame()
 
 		var expectedResponseLength = 570
@@ -270,13 +438,13 @@ component NetworkEndpointTest
 		assert this.endpoint.SawRoute3Request() == true
 		assert this.endpoint.IsHttpBodyFrameIndex(bodyOffset) == true
 		assert this.endpoint.GetHttpBodyIndex(bodyOffset) == 0
-		assert this.endpoint.GetResponseByte(bodyOffset, 0x3C) == 0x3C
+		assert this.ReadResponse(bodyOffset) == 0x3C
 	}
 
 	@Test
 	fn DispatchesHttpAfterHandshake()
 	{
-		this.endpoint.SetBodyConfig(1, 64, 717318)
+		this.content.Configure(1, 64)
 
 		var httpGetRoot = "GET / ".Encode()
 
@@ -293,6 +461,7 @@ component NetworkEndpointTest
 		this.BeginEmptyFrame()
 		this.LoadTcpBaseFrame()
 		this.endpoint.LoadRxByte(47, 0x18)
+		this.endpoint.LoadRxByte(17, 0x2E)
 		this.endpoint.LoadRxByte(54, httpGetRoot[0])
 		this.endpoint.LoadRxByte(55, httpGetRoot[1])
 		this.endpoint.LoadRxByte(56, httpGetRoot[2])
@@ -312,6 +481,40 @@ component NetworkEndpointTest
 		assert this.endpoint.SawHttpRequest() == true
 		assert this.endpoint.IsHttpBodyFrameIndex(bodyOffset) == true
 		assert this.endpoint.GetHttpBodyIndex(bodyOffset) == 0
-		assert this.endpoint.GetResponseByte(bodyOffset, 0x3C) == 0x3C
+		assert this.ReadResponse(bodyOffset) == 0x3C
+	}
+
+	/**
+	 * A short new capture must not reuse header bytes from the preceding frame.
+	 */
+	@Test
+	fn RejectsTruncatedCaptureAfterSuccessfulArp()
+	{
+		this.BeginEmptyFrame()
+		this.LoadArpEthernetIpv4RequestHeader()
+		this.LoadArpSender()
+		this.LoadLocalArpTargetIp()
+		this.endpoint.HandleFrame()
+		assert this.endpoint.SawArpRequest()
+		this.endpoint.BeginFrame()
+
+		for (var i = 0; i < 14; i++) {
+			this.endpoint.LoadRxByte(i, 0x00)
+		}
+
+		this.endpoint.LoadRxByte(12, 0x08)
+		this.endpoint.LoadRxByte(13, 0x06)
+		this.endpoint.HandleFrame()
+		assert !this.endpoint.HasResponse()
+		assert !this.endpoint.SawArpRequest()
+		assert this.endpoint.GetResponseLength() == 0
+	}
+
+	/** A checked read keeps legacy response assertions concise without masking errors. */
+	fn ReadResponse(index: int) byte
+	{
+		var value: byte = 0x00
+		assert this.endpoint.TryReadResponse(index, value) == PacketDataResult.Success
+		return value
 	}
 }

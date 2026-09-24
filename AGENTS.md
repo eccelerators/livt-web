@@ -13,139 +13,48 @@ ARP, ICMP, IPv4, TCP, and checksum primitives.
 
 ## Dependencies
 
-`Livt.Net 0.26.0` provides the reusable network-layer primitives used by this package.
+`Livt.Net 1.1.0-dev` provides the reusable network-layer primitives used by this package.
+The development manifest resolves the sibling checkout. Protocol parsing binds
+bounded providers; checksum/header helpers are static. AXI and hardware driver
+fixtures belong in Net or the board application, not Web.
 
 ## Component Inventory
 
 | File | Component | Role |
 |------|-----------|------|
 | `src/http/HttpGetRootRecognizer.lvt` | `HttpGetRootRecognizer` | Recognizes the minimal HTTP token `"GET / "` at a given frame offset |
-| `src/http/HttpRequestRecognizer.lvt` | `HttpRequestRecognizer` | Recognizes a complete IPv4/TCP/HTTP GET / request on a configured port |
+| `src/http/HttpRequestRecognizer.lvt` | `HttpRequestRecognizer` | Recognizes a configured GET token in a bounded TCP payload |
 | `src/http/HttpResponseGenerator.lvt` | `HttpResponseGenerator` | Emits bytes for an HTTP/1.0 200 OK response with a fixed-length body |
 | `src/http/HttpResponseFrameComposer.lvt` | `HttpResponseFrameComposer` | Composes a complete Ethernet/IPv4/TCP/HTTP response frame byte by byte |
 | `src/http/HttpServer.lvt` | `HttpServer` | Coordinates the narrow IPv4/TCP/HTTP request-response subset with TCP handshake |
+| `src/http/NetworkEndpoint.lvt` | `NetworkEndpoint` | Delegates Net services and dispatches TCP/HTTP to HttpServer |
+| `src/http/WebServer.lvt` | `WebServer` | Application-facing endpoint facade |
 
-## Public API
+## Public API and ownership
 
-### `HttpGetRootRecognizer`
+- `IHttpContent : IPacketData` selects a stable body with `TrySelect(route)` and
+  releases it with `Release()`. Bind one exclusive endpoint owner.
+- `NetworkEndpoint<C>` and `WebServer<C>` take content first, then local MAC/IP/port.
+- `HttpServer<S, C>` takes borrowed Ethernet/IPv4 parsers, content and local
+  MAC/IP/port. The composition root owns and publishes their shared source.
+  `NetworkEndpoint` uses one RAM capture for Net and HTTP; HTTP owns only TCP
+  parsing. Close TCP with `InvalidateRequest()` before another parser user runs.
+- Configure paths with `SetRoutePath`. Load an initialized capture between
+  `BeginFrame` and `HandleFrame`. Read only a prepared response using
+  `TryReadResponse(index, value)` and check PacketDataResult.
+- `BeginFrame` invalidates response graphs before releasing selected content.
+  Keep content unchanged throughout preparation and emission.
+- `HttpResponsePayload<P>` binds IPacketData and emits HTTP headers plus body.
+  `HttpResponseFrameComposer<P>` prepares the shared Net TCP/IPv4/Ethernet graph.
+  No raw request arrays, externally supplied checksums or injected body bytes.
+- Low-level HttpResponseGenerator remains a header encoder; the frame path uses
+  its header bytes and computes TCP checksums over the actual combined stream.
+- HttpRequestRecognizer remains a payload-only recognizer; HttpServer owns
+  endpoint and TCP flag checks.
 
-```livt
-public fn IsGetRoot(frame: byte[128], offset: int) bool
-```
-
-### `HttpRequestRecognizer`
-
-```livt
-public const TCP_PAYLOAD_OFFSET: int = 54
-public fn IsGetRootRequest(frame: byte[128], localIp: byte[4], localPort: byte[2]) bool
-```
-
-### `HttpResponseGenerator`
-
-```livt
-public const ETHERNET_IPV4_TCP_HEADER_LENGTH: int = 54
-public const FIXED_HEADER_LENGTH_WITHOUT_DIGITS: int = 62
-public const CONTENT_LENGTH_DIGIT_OFFSET: int = 58
-public const HEADER_CHECKSUM_PREFIX_WORD_SUM: int = 585762
-public const HEADER_CHECKSUM_SUFFIX_EVEN_WORD_SUM: int = 6676
-public const HEADER_CHECKSUM_SUFFIX_ODD_WORD_SUM: int = 5133
-public fn GetHeaderLength(bodyLength: int) int
-public fn GetResponseLength(bodyLength: int) int
-public fn GetResponseFrameLength(bodyLength: int) int
-public fn GetBodyFrameOffset(bodyLength: int) int
-public fn GetIpv4TotalLength(bodyLength: int) int
-public fn GetTcpLength(bodyLength: int) int
-public fn GetHeaderChecksumWordSum(bodyLength: int) int
-public fn GetResponseByte(index: int, bodyLength: int, bodyByte: logic[8]) logic[8]
-public fn GetResponseByteAtFrameOffset(index: int, bodyLength: int, bodyByte: logic[8]) logic[8]
-public fn GetHeaderByte(index: int, bodyLength: int) logic[8]
-```
-
-### `HttpResponseFrameComposer`
-
-```livt
-public fn GetFrameLength(bodyLength: int) int
-public fn GetFrameByte(
-    request: byte[128],
-    index: int,
-    bodyLength: int,
-    localMac: byte[6],
-    localIp: byte[4],
-    ipv4Checksum: byte[2],
-    tcpSequence: byte[4],
-    acknowledgment: byte[4],
-    tcpFlags: byte,
-    window: byte[2],
-    tcpChecksum: byte[2],
-    httpBodyByte: logic[8]) logic[8]
-```
-
-### `HttpServer`
-
-```livt
-public const RESPONSE_NONE: int = 0
-public const RESPONSE_HTTP: int = 2
-public const RESPONSE_SYN_ACK: int = 3
-public const SYN_ACK_RESPONSE_LENGTH: int = 60
-public const CONN_CLOSED: int = 0
-public const CONN_SYN_RECEIVED: int = 1
-public const CONN_ESTABLISHED: int = 2
-public fn SetBodyConfig(route: int, length: int, checksumWordSum: int)
-public fn SetRoutePath(route: int, path: int)
-public fn AcceptedRoute(route: int) bool
-public fn BeginFrame()
-public fn LoadRxByte(index: int, value: byte)
-public fn HandleFrame()
-public fn HasResponse() bool
-public fn AcceptedHttpRequest() bool
-public fn GetResponseKind() int
-public fn GetResponseLength() int
-public fn IsHttpBodyFrameIndex(index: int) bool
-public fn GetHttpBodyIndex(index: int) int
-public fn GetResponseByte(index: int, httpBodyByte: logic[8]) logic[8]
-```
-
-## Test Coverage
-
-### `HttpGetRootRecognizerTest`
-
-| Test function | Description |
-|---------------|-------------|
-| `DetectsGetRootAtTcpPayload` | Frame with "GET / " at offset 54 → `IsGetRoot` returns true |
-| `RejectsOtherPath` | Frame with "GET /x" → `IsGetRoot` returns false |
-| `RejectsPost` | Frame with "POST /" → `IsGetRoot` returns false |
-
-### `HttpRequestRecognizerTest`
-
-| Test function | Description |
-|---------------|-------------|
-| `AcceptsMinimalIpv4TcpHttpGetRootRequest` | Full IPv4/TCP/HTTP GET / frame with correct endpoint → returns true |
-| `RejectsWrongEndpointOrPayload` | Wrong IP or port or payload → returns false |
-
-### `HttpResponseGeneratorTest`
-
-| Test function | Description |
-|---------------|-------------|
-| `ExposesResponseLengths` | `GetHeaderLength`, `GetResponseLength`, `GetResponseFrameLength` with bodyLength=64 |
-| `EmitsHttpHeaderBytes` | First 15 bytes match "HTTP/1.0 200 OK", Content-Length digits correct |
-| `EmitsBodyAfterHeader` | Bytes at and after header offset return supplied bodyByte |
-| `EmitsResponseAtFrameOffset` | `GetResponseByteAtFrameOffset` returns 0x00 before offset 54 and correct bytes within |
-
-### `HttpResponseFrameComposerTest`
-
-| Test function | Description |
-|---------------|-------------|
-| `ExposesFixedResponseFrameLength` | `GetFrameLength(64)` == 54 + 64 + 64 |
-| `BuildsEthernetIpv4AndTcpHeaders` | Frame bytes 0–53 contain correct Ethernet/IPv4/TCP header values |
-| `AppendsHttpResponseBytes` | Frame bytes from offset 54 contain HTTP response |
-
-### `HttpServerTest`
-
-| Test function | Description |
-|---------------|-------------|
-| `IgnoresArpRequest` | ARP frame → `HasResponse()` false |
-| `RespondsToHttpGetRootRequest` | SYN → SYN-ACK; ACK → no response; GET / → HTTP response with correct length |
-| `CalculatesSynAckChecksumForHighTcpBytes` | High-byte TCP seq/ACK → verifies SYN-ACK checksum bytes |
+The manifest lists the full suite. Tests cover complete independent HTTP frames,
+odd/even header and body lengths, bounds, provider read failure and recovery,
+plus existing SYN/ACK, route and ARP/ICMP dispatch scenarios.
 
 ## In Scope
 

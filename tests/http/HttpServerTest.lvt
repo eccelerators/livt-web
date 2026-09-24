@@ -6,10 +6,14 @@ using Livt.Net
 @Test
 component HttpServerTest
 {
-	server: HttpServer
+	content: TestHttpContent
+	data: RamPacketData<128>
+	readerEthernet: EthernetFrameParser<RamPacketData<128>>
+	readerIpv4: Ipv4PacketParser<EthernetFrameParser<RamPacketData<128>>>
+	server: HttpServer<RamPacketData<128>, TestHttpContent>
 	generator: HttpResponseGenerator
-	frameIo: EthernetFrameIo
-	axi: Axi4LiteEthernetLiteAdapter
+	fixture: byte[128]
+	receiver: TestFrameReceiver<128>
 
 	new()
 	{
@@ -20,17 +24,7 @@ component HttpServerTest
 		localMac[3] = 0xCC
 		localMac[4] = 0xDD
 		localMac[5] = 0xEE
-		var frameIoMac: byte[6]
-		frameIoMac[0] = 0x02
-		frameIoMac[1] = 0xAA
-		frameIoMac[2] = 0xBB
-		frameIoMac[3] = 0xCC
-		frameIoMac[4] = 0xDD
-		frameIoMac[5] = 0xEE
-		this.axi = new Axi4LiteEthernetLiteAdapter()
-		this.frameIo = new EthernetFrameIo(
-			this.axi,
-			frameIoMac)
+		this.receiver = new TestFrameReceiver<128>()
 		this.generator = new HttpResponseGenerator()
 		var localIp: byte[4]
 		localIp[0] = 0x0A
@@ -40,132 +34,166 @@ component HttpServerTest
 		var localPort: byte[2]
 		localPort[0] = 0x00
 		localPort[1] = 0x50
-		this.server = new HttpServer(localMac, localIp, localPort)
+		this.content = new TestHttpContent()
+		this.data = new RamPacketData<128>()
+		this.readerEthernet = new EthernetFrameParser<RamPacketData<128>>(this.data)
+		this.readerIpv4 = new Ipv4PacketParser<EthernetFrameParser<RamPacketData<128>>>(this.readerEthernet)
+		this.server = new HttpServer<RamPacketData<128>, TestHttpContent>(this.readerEthernet, this.readerIpv4, this.content, localMac, localIp, localPort)
+	}
+
+	fn LoadFixtureByte(index: int, value: byte)
+	{
+		this.fixture[index] = value
+	}
+
+	fn SubmitFixture()
+	{
+		for (var i = 0; i < 128; i++) {
+			assert this.receiver.InjectByte(i, this.fixture[i]) == FrameLinkResult.Success
+		}
+
+		assert this.receiver.Publish(true, 128) == FrameLinkResult.Success
+		assert this.receiver.TryAcquire() == FrameLinkResult.Success
 	}
 
 	fn CopyFrameToServer()
 	{
 		this.server.BeginFrame()
-
-		for (var i = 0; i < 128; i++)
-		{
-			var value = this.frameIo.GetRxByte(i)
-			this.server.LoadRxByte(i, value)
+		if (this.data.IsReady()) {
+			this.data.TryRelease()
+		} else {
+			this.data.TryClear()
 		}
 
-		this.frameIo.ConsumeRxFrame()
+		for (var i = 0; i < 128; i++) {
+			var value: byte = 0x00
+			assert this.receiver.TryRead(i, value) == PacketDataResult.Success
+			this.data.TryWrite(i, value)
+		}
+
+		assert this.receiver.TryRelease() == FrameLinkResult.Success
+		this.data.TryPublish()
 		this.server.HandleFrame()
 	}
 
 	fn LoadArpEthernetIpv4RequestHeader(header: byte[8])
 	{
-		this.frameIo.LoadRxByte(14, header[0])
-		this.frameIo.LoadRxByte(15, header[1])
-		this.frameIo.LoadRxByte(16, header[2])
-		this.frameIo.LoadRxByte(17, header[3])
-		this.frameIo.LoadRxByte(18, header[4])
-		this.frameIo.LoadRxByte(19, header[5])
-		this.frameIo.LoadRxByte(20, header[6])
-		this.frameIo.LoadRxByte(21, header[7])
+		this.LoadFixtureByte(12, 0x08)
+		this.LoadFixtureByte(13, 0x06)
+		this.LoadFixtureByte(14, header[0])
+		this.LoadFixtureByte(15, header[1])
+		this.LoadFixtureByte(16, header[2])
+		this.LoadFixtureByte(17, header[3])
+		this.LoadFixtureByte(18, header[4])
+		this.LoadFixtureByte(19, header[5])
+		this.LoadFixtureByte(20, header[6])
+		this.LoadFixtureByte(21, header[7])
 	}
 
 	fn LoadArpSenderMac(senderMac: byte[6])
 	{
-		this.frameIo.LoadRxByte(22, senderMac[0])
-		this.frameIo.LoadRxByte(23, senderMac[1])
-		this.frameIo.LoadRxByte(24, senderMac[2])
-		this.frameIo.LoadRxByte(25, senderMac[3])
-		this.frameIo.LoadRxByte(26, senderMac[4])
-		this.frameIo.LoadRxByte(27, senderMac[5])
+		this.LoadFixtureByte(22, senderMac[0])
+		this.LoadFixtureByte(23, senderMac[1])
+		this.LoadFixtureByte(24, senderMac[2])
+		this.LoadFixtureByte(25, senderMac[3])
+		this.LoadFixtureByte(26, senderMac[4])
+		this.LoadFixtureByte(27, senderMac[5])
 	}
 
 	fn LoadArpTargetIp(targetIp: byte[4])
 	{
-		this.frameIo.LoadRxByte(38, targetIp[0])
-		this.frameIo.LoadRxByte(39, targetIp[1])
-		this.frameIo.LoadRxByte(40, targetIp[2])
-		this.frameIo.LoadRxByte(41, targetIp[3])
+		this.LoadFixtureByte(38, targetIp[0])
+		this.LoadFixtureByte(39, targetIp[1])
+		this.LoadFixtureByte(40, targetIp[2])
+		this.LoadFixtureByte(41, targetIp[3])
 	}
 
 	fn LoadEtherType(etherType: byte[2])
 	{
-		this.frameIo.LoadRxByte(12, etherType[0])
-		this.frameIo.LoadRxByte(13, etherType[1])
+		this.LoadFixtureByte(12, etherType[0])
+		this.LoadFixtureByte(13, etherType[1])
 	}
 
 	fn LoadEthernetSourceMac(sourceMac: byte[6])
 	{
-		this.frameIo.LoadRxByte(6, sourceMac[0])
-		this.frameIo.LoadRxByte(7, sourceMac[1])
-		this.frameIo.LoadRxByte(8, sourceMac[2])
-		this.frameIo.LoadRxByte(9, sourceMac[3])
-		this.frameIo.LoadRxByte(10, sourceMac[4])
-		this.frameIo.LoadRxByte(11, sourceMac[5])
+		this.LoadFixtureByte(6, sourceMac[0])
+		this.LoadFixtureByte(7, sourceMac[1])
+		this.LoadFixtureByte(8, sourceMac[2])
+		this.LoadFixtureByte(9, sourceMac[3])
+		this.LoadFixtureByte(10, sourceMac[4])
+		this.LoadFixtureByte(11, sourceMac[5])
 	}
 
 	fn LoadIpv4FixedTcpHeader(ipHeader: byte[4])
 	{
-		this.frameIo.LoadRxByte(14, ipHeader[0])
-		this.frameIo.LoadRxByte(20, ipHeader[1])
-		this.frameIo.LoadRxByte(21, ipHeader[2])
-		this.frameIo.LoadRxByte(23, ipHeader[3])
+		this.LoadFixtureByte(16, 0x00)
+		this.LoadFixtureByte(17, 0x28)
+		this.LoadFixtureByte(14, ipHeader[0])
+		this.LoadFixtureByte(20, ipHeader[1])
+		this.LoadFixtureByte(21, ipHeader[2])
+		this.LoadFixtureByte(23, ipHeader[3])
 	}
 
 	fn LoadIpv4SourceIp(sourceIp: byte[4])
 	{
-		this.frameIo.LoadRxByte(26, sourceIp[0])
-		this.frameIo.LoadRxByte(27, sourceIp[1])
-		this.frameIo.LoadRxByte(28, sourceIp[2])
-		this.frameIo.LoadRxByte(29, sourceIp[3])
+		this.LoadFixtureByte(26, sourceIp[0])
+		this.LoadFixtureByte(27, sourceIp[1])
+		this.LoadFixtureByte(28, sourceIp[2])
+		this.LoadFixtureByte(29, sourceIp[3])
 	}
 
 	fn LoadIpv4DestinationIp(destinationIp: byte[4])
 	{
-		this.frameIo.LoadRxByte(30, destinationIp[0])
-		this.frameIo.LoadRxByte(31, destinationIp[1])
-		this.frameIo.LoadRxByte(32, destinationIp[2])
-		this.frameIo.LoadRxByte(33, destinationIp[3])
+		this.LoadFixtureByte(30, destinationIp[0])
+		this.LoadFixtureByte(31, destinationIp[1])
+		this.LoadFixtureByte(32, destinationIp[2])
+		this.LoadFixtureByte(33, destinationIp[3])
 	}
 
 	fn LoadTcpSourcePort(sourcePort: byte[2])
 	{
-		this.frameIo.LoadRxByte(34, sourcePort[0])
-		this.frameIo.LoadRxByte(35, sourcePort[1])
+		this.LoadFixtureByte(34, sourcePort[0])
+		this.LoadFixtureByte(35, sourcePort[1])
 	}
 
 	fn LoadTcpDestinationPort(destinationPort: byte[2])
 	{
-		this.frameIo.LoadRxByte(36, destinationPort[0])
-		this.frameIo.LoadRxByte(37, destinationPort[1])
+		this.LoadFixtureByte(36, destinationPort[0])
+		this.LoadFixtureByte(37, destinationPort[1])
 	}
 
 	fn LoadTcpSeqNum(seqNum: byte[4])
 	{
-		this.frameIo.LoadRxByte(38, seqNum[0])
-		this.frameIo.LoadRxByte(39, seqNum[1])
-		this.frameIo.LoadRxByte(40, seqNum[2])
-		this.frameIo.LoadRxByte(41, seqNum[3])
+		this.LoadFixtureByte(38, seqNum[0])
+		this.LoadFixtureByte(39, seqNum[1])
+		this.LoadFixtureByte(40, seqNum[2])
+		this.LoadFixtureByte(41, seqNum[3])
 	}
 
 	fn LoadTcpDataOffsetAndFlags(dataOffsetAndFlags: byte[2])
 	{
-		this.frameIo.LoadRxByte(46, dataOffsetAndFlags[0])
-		this.frameIo.LoadRxByte(47, dataOffsetAndFlags[1])
+		this.LoadFixtureByte(46, dataOffsetAndFlags[0])
+		this.LoadFixtureByte(47, dataOffsetAndFlags[1])
 	}
 
 	fn LoadTcpPayload6(payload: byte[6])
 	{
-		this.frameIo.LoadRxByte(54, payload[0])
-		this.frameIo.LoadRxByte(55, payload[1])
-		this.frameIo.LoadRxByte(56, payload[2])
-		this.frameIo.LoadRxByte(57, payload[3])
-		this.frameIo.LoadRxByte(58, payload[4])
-		this.frameIo.LoadRxByte(59, payload[5])
+		this.LoadFixtureByte(17, 0x2E)
+		this.LoadFixtureByte(54, payload[0])
+		this.LoadFixtureByte(55, payload[1])
+		this.LoadFixtureByte(56, payload[2])
+		this.LoadFixtureByte(57, payload[3])
+		this.LoadFixtureByte(58, payload[4])
+		this.LoadFixtureByte(59, payload[5])
 	}
 
 	@Test
 	fn IgnoresArpRequest()
 	{
+		for (var i = 0; i < 128; i++) {
+			this.fixture[i] = 0x00
+		}
+
 		var arpEthernetIpv4Request: byte[8]
 		arpEthernetIpv4Request[0] = 0x00
 		arpEthernetIpv4Request[1] = 0x01
@@ -193,7 +221,7 @@ component HttpServerTest
 		this.LoadArpEthernetIpv4RequestHeader(arpEthernetIpv4Request)
 		this.LoadArpSenderMac(clientMac)
 		this.LoadArpTargetIp(localIp)
-		this.frameIo.SubmitRxFrame()
+		this.SubmitFixture()
 
 		this.CopyFrameToServer()
 
@@ -205,7 +233,11 @@ component HttpServerTest
 	@Test
 	fn RespondsToHttpGetRootRequest()
 	{
-		this.server.SetBodyConfig(1, 64, 717318)
+		for (var i = 0; i < 128; i++) {
+			this.fixture[i] = 0x00
+		}
+
+		this.content.Configure(1, 64)
 
 		var httpGetRoot = "GET / ".Encode()
 
@@ -267,7 +299,7 @@ component HttpServerTest
 		this.LoadTcpDestinationPort(httpPort)
 		this.LoadTcpSeqNum(clientSeq)
 		this.LoadTcpDataOffsetAndFlags(tcpSyn)
-		this.frameIo.SubmitRxFrame()
+		this.SubmitFixture()
 
 		this.CopyFrameToServer()
 
@@ -276,7 +308,7 @@ component HttpServerTest
 
 		// A host retransmits SYN when the SYN-ACK is missed or rejected. The
 		// endpoint should refresh and send SYN-ACK again while in SYN_RECEIVED.
-		this.frameIo.SubmitRxFrame()
+		this.SubmitFixture()
 
 		this.CopyFrameToServer()
 
@@ -289,7 +321,7 @@ component HttpServerTest
 		tcpAck[1] = 0x10
 
 		this.LoadTcpDataOffsetAndFlags(tcpAck)
-		this.frameIo.SubmitRxFrame()
+		this.SubmitFixture()
 
 		this.CopyFrameToServer()
 
@@ -302,7 +334,7 @@ component HttpServerTest
 
 		this.LoadTcpDataOffsetAndFlags(tcpPshAck)
 		this.LoadTcpPayload6(httpGetRoot)
-		this.frameIo.SubmitRxFrame()
+		this.SubmitFixture()
 
 		this.CopyFrameToServer()
 
@@ -315,12 +347,16 @@ component HttpServerTest
 		assert this.server.GetResponseLength() == expectedResponseLength
 		assert this.server.IsHttpBodyFrameIndex(bodyOffset) == true
 		assert this.server.GetHttpBodyIndex(bodyOffset) == 0
-		assert this.server.GetResponseByte(bodyOffset, 0x3C) == 0x3C
+		assert this.ReadResponse(bodyOffset) == 0x3C
 	}
 
 	@Test
 	fn CalculatesSynAckChecksumForHighTcpBytes()
 	{
+		for (var i = 0; i < 128; i++) {
+			this.fixture[i] = 0x00
+		}
+
 		var clientMac: byte[6]
 		clientMac[0] = 0x9C
 		clientMac[1] = 0xEB
@@ -378,27 +414,31 @@ component HttpServerTest
 		this.LoadTcpDestinationPort(httpPort)
 		this.LoadTcpSeqNum(clientSeq)
 		this.LoadTcpDataOffsetAndFlags(tcpSyn)
-		this.frameIo.SubmitRxFrame()
+		this.SubmitFixture()
 
 		this.CopyFrameToServer()
 
 		assert this.server.GetResponseKind() == 3
-		assert this.server.GetResponseByte(24, 0x00) == 0x26
-		assert this.server.GetResponseByte(25, 0x00) == 0x69
-		assert this.server.GetResponseByte(42, 0x00) == 0x8F
-		assert this.server.GetResponseByte(45, 0x00) == 0x3A
-		assert this.server.GetResponseByte(50, 0x00) == 0x3F
-		assert this.server.GetResponseByte(51, 0x00) == 0x09
+		assert this.ReadResponse(24) == 0x26
+		assert this.ReadResponse(25) == 0x69
+		assert this.ReadResponse(42) == 0x8F
+		assert this.ReadResponse(45) == 0x3A
+		assert this.ReadResponse(50) == 0x3F
+		assert this.ReadResponse(51) == 0x09
 	}
 
 	@Test
 	fn RespondsToHttpGetAboutRequest()
 	{
+		for (var i = 0; i < 128; i++) {
+			this.fixture[i] = 0x00
+		}
+
 		// Route 2 (/about, 70-byte body) must produce a 188-byte frame
 		// (Ethernet 14 + IPv4 20 + TCP 20 + HTTP header 64 + body 70),
 		// not the 182-byte frame used for the / route (64-byte body).
-		this.server.SetBodyConfig(1, 64, 717318)
-		this.server.SetBodyConfig(2, 70, 738428)
+		this.content.Configure(1, 64)
+		this.content.Configure(2, 70)
 		this.server.SetRoutePath(2, 2)
 
 		var clientMac: byte[6]
@@ -459,7 +499,7 @@ component HttpServerTest
 		this.LoadTcpDestinationPort(httpPort)
 		this.LoadTcpSeqNum(clientSeq)
 		this.LoadTcpDataOffsetAndFlags(tcpSyn)
-		this.frameIo.SubmitRxFrame()
+		this.SubmitFixture()
 
 		this.CopyFrameToServer()
 
@@ -471,7 +511,7 @@ component HttpServerTest
 		tcpAck[1] = 0x10
 
 		this.LoadTcpDataOffsetAndFlags(tcpAck)
-		this.frameIo.SubmitRxFrame()
+		this.SubmitFixture()
 
 		this.CopyFrameToServer()
 
@@ -483,19 +523,20 @@ component HttpServerTest
 		tcpPshAck[1] = 0x18
 
 		this.LoadTcpDataOffsetAndFlags(tcpPshAck)
+		this.LoadFixtureByte(17, 0x33)
 		// "GET /about " = 47 45 54 20 2F 61 62 6F 75 74 20
-		this.frameIo.LoadRxByte(54, 0x47)
-		this.frameIo.LoadRxByte(55, 0x45)
-		this.frameIo.LoadRxByte(56, 0x54)
-		this.frameIo.LoadRxByte(57, 0x20)
-		this.frameIo.LoadRxByte(58, 0x2F)
-		this.frameIo.LoadRxByte(59, 0x61)
-		this.frameIo.LoadRxByte(60, 0x62)
-		this.frameIo.LoadRxByte(61, 0x6F)
-		this.frameIo.LoadRxByte(62, 0x75)
-		this.frameIo.LoadRxByte(63, 0x74)
-		this.frameIo.LoadRxByte(64, 0x20)
-		this.frameIo.SubmitRxFrame()
+		this.LoadFixtureByte(54, 0x47)
+		this.LoadFixtureByte(55, 0x45)
+		this.LoadFixtureByte(56, 0x54)
+		this.LoadFixtureByte(57, 0x20)
+		this.LoadFixtureByte(58, 0x2F)
+		this.LoadFixtureByte(59, 0x61)
+		this.LoadFixtureByte(60, 0x62)
+		this.LoadFixtureByte(61, 0x6F)
+		this.LoadFixtureByte(62, 0x75)
+		this.LoadFixtureByte(63, 0x74)
+		this.LoadFixtureByte(64, 0x20)
+		this.SubmitFixture()
 
 		this.CopyFrameToServer()
 
@@ -510,9 +551,13 @@ component HttpServerTest
 	@Test
 	fn RespondsToHttpGetStatusRequest()
 	{
-		this.server.SetBodyConfig(1, 64, 717318)
-		this.server.SetBodyConfig(2, 70, 738428)
-		this.server.SetBodyConfig(3, 451, 4784892)
+		for (var i = 0; i < 128; i++) {
+			this.fixture[i] = 0x00
+		}
+
+		this.content.Configure(1, 64)
+		this.content.Configure(2, 70)
+		this.content.Configure(3, 451)
 		this.server.SetRoutePath(2, 2)
 		this.server.SetRoutePath(3, 3)
 
@@ -573,7 +618,7 @@ component HttpServerTest
 		this.LoadTcpDestinationPort(httpPort)
 		this.LoadTcpSeqNum(clientSeq)
 		this.LoadTcpDataOffsetAndFlags(tcpSyn)
-		this.frameIo.SubmitRxFrame()
+		this.SubmitFixture()
 
 		this.CopyFrameToServer()
 
@@ -582,7 +627,7 @@ component HttpServerTest
 		tcpAck[1] = 0x10
 
 		this.LoadTcpDataOffsetAndFlags(tcpAck)
-		this.frameIo.SubmitRxFrame()
+		this.SubmitFixture()
 
 		this.CopyFrameToServer()
 
@@ -592,11 +637,13 @@ component HttpServerTest
 		var httpGetStatus = "GET /status ".Encode()
 
 		this.LoadTcpDataOffsetAndFlags(tcpPshAck)
-		for (var i = 0; i < 12; i++)
-		{
-			this.frameIo.LoadRxByte(54 + i, httpGetStatus[i])
+		this.LoadFixtureByte(17, 0x34)
+
+		for (var i = 0; i < 12; i++) {
+			this.LoadFixtureByte(54 + i, httpGetStatus[i])
 		}
-		this.frameIo.SubmitRxFrame()
+
+		this.SubmitFixture()
 
 		this.CopyFrameToServer()
 
@@ -611,11 +658,15 @@ component HttpServerTest
 	@Test
 	fn AcceptsHttpGetOnCombinedAckGetFrame()
 	{
+		for (var i = 0; i < 128; i++) {
+			this.fixture[i] = 0x00
+		}
+
 		// Some OS TCP stacks combine the three-way handshake ACK with the
 		// first data segment (PSH+ACK, flags 0x18), skipping the ACK-only
 		// frame. The server must promote connState to CONN_ESTABLISHED on
 		// PSH+ACK so the GET request is not silently dropped.
-		this.server.SetBodyConfig(1, 64, 717318)
+		this.content.Configure(1, 64)
 
 		var httpGetRoot = "GET / ".Encode()
 
@@ -677,7 +728,7 @@ component HttpServerTest
 		this.LoadTcpDestinationPort(httpPort)
 		this.LoadTcpSeqNum(clientSeq)
 		this.LoadTcpDataOffsetAndFlags(tcpSyn)
-		this.frameIo.SubmitRxFrame()
+		this.SubmitFixture()
 
 		this.CopyFrameToServer()
 
@@ -690,11 +741,19 @@ component HttpServerTest
 
 		this.LoadTcpDataOffsetAndFlags(tcpPshAck)
 		this.LoadTcpPayload6(httpGetRoot)
-		this.frameIo.SubmitRxFrame()
+		this.SubmitFixture()
 
 		this.CopyFrameToServer()
 
 		assert this.server.AcceptedHttpRequest() == true
 		assert this.server.GetResponseKind() == 2
+	}
+
+	/** A checked read keeps legacy response assertions concise without masking errors. */
+	fn ReadResponse(index: int) byte
+	{
+		var value: byte = 0x00
+		assert this.server.TryReadResponse(index, value) == PacketDataResult.Success
+		return value
 	}
 }

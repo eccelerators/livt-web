@@ -1,0 +1,51 @@
+namespace Livt.Web.Tests.Http
+using Livt.Net
+using Livt.Web.Http
+
+/** Failure during checksum traversal must not publish a partial response. */
+@Test
+component HttpResponseFailureTest
+{
+	body: TestHttpContent
+	response: HttpResponseFrameComposer<TestHttpContent>
+	new()
+	{
+		this.body = new TestHttpContent()
+		this.response = new HttpResponseFrameComposer<TestHttpContent>(this.body)
+	}
+
+	fn Prepare() PacketDataResult
+	{
+		var mac: byte[6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01]
+		var ip: byte[4] = [0x0A, 0x00, 0x00, 0x01]
+		var port: byte[2] = [0x00, 0x50]
+		var sequence: byte[4] = [0x00, 0x00, 0x00, 0x02]
+		return this.response.TryPrepare(mac, mac, ip, ip, port, port, sequence, sequence, 0x19, port)
+	}
+
+	@Test
+	fn PropagatesBodyFailureAndAllowsRecovery()
+	{
+		this.response.Invalidate()
+		this.body.Release()
+		this.body.Configure(1, 3)
+		this.body.FailAt(-1)
+		assert this.Prepare() == PacketDataResult.NotReady
+		assert this.body.TrySelect(1) == PacketDataResult.Success
+		assert this.Prepare() == PacketDataResult.Success
+		assert this.body.TrySelect(2) == PacketDataResult.Busy
+		this.response.Invalidate()
+		this.body.Release()
+		this.body.FailAt(1)
+		assert this.body.TrySelect(1) == PacketDataResult.Success
+		assert this.Prepare() == PacketDataResult.Invalid
+		assert !this.response.IsReady()
+		assert this.response.GetAvailableLength() == 0
+		var value: byte = 0xFF
+		assert this.response.TryRead(0, value) == PacketDataResult.NotReady
+		this.body.Release()
+		this.body.FailAt(-1)
+		assert this.body.TrySelect(1) == PacketDataResult.Success
+		assert this.Prepare() == PacketDataResult.Success
+	}
+}
