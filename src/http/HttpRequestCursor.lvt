@@ -1,0 +1,122 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * Internal bounded scanner over borrowed bytes. Ready here means readable,
+ * not a published HTTP request. No byte storage or source ownership.
+ */
+component HttpRequestCursor<S: IPacketData, MAX_BYTES: int>
+{
+	static assert MAX_BYTES > 0, "Request byte bound must be positive"
+
+	// Borrowed source; the caller owns its publication lifetime.
+	source: S
+
+	// Current scan position, sampled extent and checked-read outcome.
+	position: int
+	length: int
+	result: HttpRequestResult
+
+	/**
+	 * Borrows the source without reserving or reading it; Begin establishes a scan.
+	 */
+	new(source: S)
+	{
+		this.source = source
+	}
+
+	/**
+	 * Resets the cursor and snapshots a published source length within MAX_BYTES.
+	 * Ready means readable scan input, not a syntactically valid HTTP request.
+	 */
+	public fn Begin() HttpRequestResult
+	{
+		position = 0
+		length = 0
+		result = HttpRequestResult.NotReady
+
+		if (!source.IsReady()) {
+			return result
+		}
+
+		// Validate the scheduled result locally; field forwarding is tracked in #543.
+		var available = source.GetAvailableLength()
+		length = available
+
+		if (available < 0) {
+			result = HttpRequestResult.ReadFailure
+		}
+		elif (available > MAX_BYTES) {
+			result = HttpRequestResult.TooLarge
+		}
+		else {
+			result = HttpRequestResult.Ready
+		}
+
+		return result
+	}
+
+	/**
+	 * Returns the next sequential source-byte offset, not a storage reservation.
+	 */
+	public fn GetPosition() int
+	{
+		return position
+	}
+
+	/**
+	 * Returns the source-byte extent sampled by Begin; inspect its result first.
+	 */
+	public fn GetLength() int
+	{
+		return length
+	}
+
+	/**
+	 * Returns the last scanner outcome without advancing or reading the source.
+	 */
+	public fn GetResult() HttpRequestResult
+	{
+		return result
+	}
+
+	/**
+	 * Reads and advances one byte on success. End of extent records Incomplete;
+	 * provider failure records ReadFailure. False leaves value zero.
+	 */
+	public fn Next(value: out byte) bool
+	{
+		value = 0x00
+
+		if (position >= length) {
+			result = HttpRequestResult.Incomplete
+			return false
+		}
+
+		if (!this.ReadAt(position, value)) {
+			return false
+		}
+
+		position = position + 1
+		return true
+	}
+
+	/**
+	 * Reads an absolute source index without advancing the cursor. Callers establish
+	 * view bounds; a provider failure records ReadFailure and leaves value zero.
+	 */
+	public fn ReadAt(index: int, value: out byte) bool
+	{
+		value = 0x00
+		var readValue: byte = 0x00
+
+		if (source.TryRead(index, readValue) != PacketDataResult.Success) {
+			result = HttpRequestResult.ReadFailure
+			return false
+		}
+
+		value = readValue
+		return true
+	}
+}

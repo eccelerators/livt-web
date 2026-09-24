@@ -1,0 +1,115 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * One shared TCP/IPv4/Ethernet graph over complete encoded HTTP or empty SYN.
+ */
+component HttpTcpFrame<A: IHttpApplication> : IPacketData
+{
+	// Owned protocol headers/descriptors; application bytes remain borrowed.
+	payload: HttpTransportPayload<A>
+	segment: TcpSegment<HttpTransportPayload<A>>
+	packet: TcpIpv4Packet<HttpTransportPayload<A>>
+	frame: TcpIpv4Frame<HttpTransportPayload<A>>
+
+	/**
+	 * Borrows complete HTTP bytes and owns one TCP/IPv4/Ethernet response graph.
+	 * Starts unpublished; no payload or receive storage is allocated.
+	 */
+	new(application: A)
+	{
+		payload = new HttpTransportPayload<A>(application)
+		segment = new TcpSegment<HttpTransportPayload<A>>(payload)
+		packet = new TcpIpv4Packet<HttpTransportPayload<A>>(segment)
+		frame = new TcpIpv4Frame<HttpTransportPayload<A>>(packet)
+	}
+
+	/**
+	 * Invalidates Ethernet, IPv4, TCP and payload views in consumer-first order.
+	 * Does not complete or release the borrowed HTTP application.
+	 */
+	public fn Invalidate()
+	{
+		frame.Invalidate()
+		packet.Invalidate()
+		segment.Invalidate()
+		payload.Invalidate()
+	}
+
+	/**
+	 * Publishes an empty SYN-ACK or complete HTTP response with the supplied
+	 * network-order endpoints and acknowledgement. Computes checksums over actual
+	 * bytes; failure invalidates the graph and propagates PacketDataResult.
+	 */
+	public fn TryPrepare(http: bool, localMac: byte[6], peerMac: byte[6],
+		localIp: byte[4], peerIp: byte[4], localPort: byte[2], peerPort: byte[2],
+		acknowledgment: byte[4]) PacketDataResult
+	{
+		this.Invalidate()
+		payload.Select(http)
+		var sequence: byte[4] = [0x00, 0x00, 0x00, 0x01]
+		var identification: byte[2] = [0x00, 0x02]
+		var flags: byte = 0x12
+		var window: byte[2] = [0x04, 0x00]
+
+		if (http) {
+			sequence[3] = 0x02
+			identification[1] = 0x01
+			flags = 0x19
+		}
+
+		var result = segment.TryPrepare(localIp, peerIp, localPort, peerPort, sequence, acknowledgment, flags, window)
+
+		if (result == PacketDataResult.Success) {
+			result = packet.TryPrepare(localIp, peerIp, identification)
+		}
+
+		if (result == PacketDataResult.Success) {
+			result = frame.TryPrepare(localMac, peerMac)
+		}
+
+		if (result != PacketDataResult.Success) {
+			this.Invalidate()
+		}
+
+		return result
+	}
+
+	/**
+	 * Reports current publication availability, not a reservation.
+	 * Keep the borrowed providers stable until all consumers finish.
+	 */
+	override fn IsReady() bool
+	{
+		return frame.IsReady() && payload.IsReady()
+	}
+
+	/**
+	 * Returns the currently advertised byte extent, or zero without publication.
+	 * The extent is a snapshot; it does not reserve the backing storage.
+	 */
+	override fn GetAvailableLength() int
+	{
+		if (!this.IsReady()) {
+			return 0
+		}
+
+		return frame.GetAvailableLength()
+	}
+
+	/**
+	 * Reads a zero-based byte within the published extent. Check PacketDataResult
+	 * before using value; keep all borrowed providers stable throughout the read.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (!this.IsReady()) {
+			return PacketDataResult.NotReady
+		}
+
+		return frame.TryRead(index, value)
+	}
+}

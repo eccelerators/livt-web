@@ -1,0 +1,19 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * Publication and transport retention are distinct transaction phases.
+ */
+enum HttpApplicationState
+{
+	Idle
+	AwaitingRequest
+	Matching
+	Preparing
+	Published
+	Retained
+	Completed
+	Failed
+	Aborted
+}

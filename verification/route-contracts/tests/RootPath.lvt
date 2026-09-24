@@ -1,0 +1,30 @@
+namespace Livt.Web.Prototype
+using Livt.Net
+
+/** Immutable application path bytes; no setup writes or owned receive storage. */
+component RootPath : IPacketData
+{
+	const PATH[1] = [0x2F]
+
+	override fn IsReady() bool
+	{
+		return true
+	}
+
+	override fn GetAvailableLength() int
+	{
+		return 1
+	}
+
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (index != 0) {
+			return PacketDataResult.Invalid
+		}
+
+		value = PATH[index]
+		return PacketDataResult.Success
+	}
+}

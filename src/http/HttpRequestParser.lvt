@@ -1,0 +1,297 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * One bounded bodyless HTTP request over borrowed bytes. Owns scanners and scalar
+ * descriptors, not request storage. Invalidate descendants before source reuse.
+ */
+component HttpRequestParser<S: IPacketData, MAX_BYTES: int = 1024, MAX_TARGET: int = 128, MAX_HEADERS: int = 16> : IHttpRequest
+{
+	// Borrowed request bytes; no receive storage is owned here.
+	source: S
+
+	// Owned scanners sharing the same bounded source cursor.
+	cursor: HttpRequestCursor<S, MAX_BYTES>
+	line: HttpRequestLine<S, MAX_BYTES, MAX_TARGET>
+	headers: HttpRequestHeaders<S, MAX_BYTES, MAX_HEADERS>
+
+	// Publication status of the parsed request view.
+	result: HttpRequestResult
+
+	/**
+	 * Borrows source storage and owns the bounded cursor and line/header scanners.
+	 * Starts unpublished; callers retain storage until all parsed views are closed.
+	 */
+	new(source: S)
+	{
+		this.source = source
+		cursor = new HttpRequestCursor<S, MAX_BYTES>(source)
+		line = new HttpRequestLine<S, MAX_BYTES, MAX_TARGET>(cursor)
+		headers = new HttpRequestHeaders<S, MAX_BYTES, MAX_HEADERS>(cursor)
+	}
+
+	/**
+	 * Reparse only when no descendants are borrowing the previous view.
+	 */
+	public fn TryParse() HttpRequestResult
+	{
+		this.Invalidate()
+		result = cursor.Begin()
+
+		if (result != HttpRequestResult.Ready) {
+			return result
+		}
+
+		result = line.Parse()
+
+		if (result != HttpRequestResult.Ready) {
+			return result
+		}
+
+		result = headers.Parse()
+
+		if (result != HttpRequestResult.Ready) {
+			return result
+		}
+
+		if (line.GetVersion() == HttpVersion.Http11 && !headers.HasHost()) {
+			result = HttpRequestResult.Malformed
+		}
+		elif (!line.IsSupported() || !headers.IsSupported() || cursor.GetPosition() != cursor.GetLength()) {
+			result = HttpRequestResult.Unsupported
+		}
+
+		return result
+	}
+
+	/**
+	 * Closes the request view without releasing source storage.
+	 * Call only after all descendants have stopped using the previous request.
+	 */
+	public fn Invalidate()
+	{
+		result = HttpRequestResult.NotReady
+	}
+
+	/**
+	 * Returns the parse outcome, reporting NotReady if published source storage is lost.
+	 */
+	public fn GetResult() HttpRequestResult
+	{
+		if (result == HttpRequestResult.Ready && !source.IsReady()) {
+			return HttpRequestResult.NotReady
+		}
+
+		return result
+	}
+
+	/**
+	 * Reports whether one complete supported request is published over readable storage.
+	 * Keep its source stable until all consumers finish and the owner invalidates it.
+	 */
+	override fn IsReady() bool
+	{
+		return this.GetResult() == HttpRequestResult.Ready
+	}
+
+	/**
+	 * Returns the published method classification, or Other when unavailable.
+	 */
+	override fn GetMethod() HttpMethod
+	{
+		if (!this.IsReady()) {
+			return HttpMethod.Other
+		}
+
+		return line.GetMethod()
+	}
+
+	/**
+	 * Returns the published HTTP version, or Unknown when unavailable.
+	 */
+	override fn GetVersion() HttpVersion
+	{
+		if (!this.IsReady()) {
+			return HttpVersion.Unknown
+		}
+
+		return line.GetVersion()
+	}
+
+	/**
+	 * Returns the encoded path byte length excluding the query; zero when unavailable.
+	 */
+	override fn GetPathLength() int
+	{
+		if (!this.IsReady()) {
+			return 0
+		}
+
+		return line.GetPathLength()
+	}
+
+	/**
+	 * Reports a published query separator; an explicitly empty query still returns true.
+	 */
+	override fn HasQuery() bool
+	{
+		return this.IsReady() && line.HasQuery()
+	}
+
+	/**
+	 * Returns the encoded query byte length excluding the separator; zero when unavailable.
+	 */
+	override fn GetQueryLength() int
+	{
+		if (!this.IsReady()) {
+			return 0
+		}
+
+		return line.GetQueryLength()
+	}
+
+	/**
+	 * Reads a zero-based byte of the published encoded path.
+	 * Unavailable publication returns NotReady; invalid indices return Invalid.
+	 * Provider failures propagate; use value only on Success and keep storage stable.
+	 */
+	override fn TryReadPath(index: int, value: out byte) PacketDataResult
+	{
+		return this.ReadView(line.GetPathOffset(), line.GetPathLength(), index, value)
+	}
+
+	/**
+	 * Reads a zero-based byte of the published encoded query.
+	 * Unavailable publication returns NotReady; invalid indices return Invalid.
+	 * Provider failures propagate; use value only on Success and keep storage stable.
+	 */
+	override fn TryReadQuery(index: int, value: out byte) PacketDataResult
+	{
+		return this.ReadView(line.GetQueryOffset(), line.GetQueryLength(), index, value)
+	}
+
+	/**
+	 * Returns the published header count, or zero when unavailable.
+	 */
+	override fn GetHeaderCount() int
+	{
+		if (!this.IsReady()) {
+			return 0
+		}
+
+		return headers.GetCount()
+	}
+
+	/**
+	 * Checks publication and descriptor bounds before exposing a header view.
+	 */
+	fn HasHeader(header: int) bool
+	{
+		return this.IsReady() && header >= 0 && header < headers.GetCount()
+	}
+
+	/**
+	 * Returns the cached header classification; invalid/unavailable indices return Other.
+	 */
+	override fn GetHeaderKind(header: int) HttpHeaderName
+	{
+		if (!this.HasHeader(header)) {
+			return HttpHeaderName.Other
+		}
+
+		return headers.GetKind(header)
+	}
+
+	/**
+	 * Returns the original name byte length; invalid/unavailable indices return zero.
+	 */
+	override fn GetHeaderNameLength(header: int) int
+	{
+		if (!this.HasHeader(header)) {
+			return 0
+		}
+
+		return headers.GetNameLength(header)
+	}
+
+	/**
+	 * Returns the trimmed value byte length; invalid/unavailable indices return zero.
+	 */
+	override fn GetHeaderValueLength(header: int) int
+	{
+		if (!this.HasHeader(header)) {
+			return 0
+		}
+
+		return headers.GetValueLength(header)
+	}
+
+	/**
+	 * Reads a zero-based byte of the published header name.
+	 * Unavailable publication returns NotReady; invalid indices return Invalid.
+	 * Provider failures propagate; use value only on Success and keep storage stable.
+	 */
+	override fn TryReadHeaderName(header: int, index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (!this.IsReady()) {
+			return PacketDataResult.NotReady
+		}
+
+		if (!this.HasHeader(header)) {
+			return PacketDataResult.Invalid
+		}
+
+		return this.ReadView(headers.GetNameOffset(header), headers.GetNameLength(header), index, value)
+	}
+
+	/**
+	 * Reads a zero-based byte of the published trimmed header value.
+	 * Unavailable publication returns NotReady; invalid indices return Invalid.
+	 * Provider failures propagate; use value only on Success and keep storage stable.
+	 */
+	override fn TryReadHeaderValue(header: int, index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (!this.IsReady()) {
+			return PacketDataResult.NotReady
+		}
+
+		if (!this.HasHeader(header)) {
+			return PacketDataResult.Invalid
+		}
+
+		return this.ReadView(headers.GetValueOffset(header), headers.GetValueLength(header), index, value)
+	}
+
+	/**
+	 * Checks a zero-based subrange read against the publication and source.
+	 * Provider failure records ReadFailure; failure leaves value zero.
+	 */
+	fn ReadView(offset: int, length: int, index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (!this.IsReady()) {
+			return PacketDataResult.NotReady
+		}
+
+		if (index < 0 || index >= length) {
+			return PacketDataResult.Invalid
+		}
+
+		var readValue: byte = 0x00
+		var readResult = source.TryRead(offset + index, readValue)
+
+		if (readResult != PacketDataResult.Success) {
+			result = HttpRequestResult.ReadFailure
+			return readResult
+		}
+
+		value = readValue
+		return PacketDataResult.Success
+	}
+}

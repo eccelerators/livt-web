@@ -1,0 +1,78 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * Stateless ASCII predicates shared by request-line and header scanners.
+ */
+class HttpRequestSyntax
+{
+	/**
+	 * Classifies ASCII decimal digits only.
+	 */
+	public static inline fn IsDigit[](value: byte) bool
+	{
+		return value >= 0x30 && value <= 0x39
+	}
+
+	/**
+	 * Classifies ASCII letters without locale or Unicode interpretation.
+	 */
+	public static inline fn IsAlpha[](value: byte) bool
+	{
+		return (value >= 0x41 && value <= 0x5A) || (value >= 0x61 && value <= 0x7A)
+	}
+
+	/**
+	 * Classifies ASCII hexadecimal digits in either case.
+	 */
+	public static inline fn IsHex[](value: byte) bool
+	{
+		return HttpRequestSyntax.IsDigit(value) || (value >= 0x41 && value <= 0x46) || (value >= 0x61 && value <= 0x66)
+	}
+
+	/**
+	 * Classifies permitted HTTP token bytes; excludes separators and whitespace.
+	 */
+	public static inline fn IsToken[](value: byte) bool
+	{
+		return HttpRequestSyntax.IsAlpha(value) || HttpRequestSyntax.IsDigit(value)
+			|| value == 0x21 || value == 0x23 || value == 0x24 || value == 0x25
+			|| value == 0x26 || value == 0x27 || value == 0x2A || value == 0x2B
+			|| value == 0x2D || value == 0x2E || value == 0x5E || value == 0x5F
+			|| value == 0x60 || value == 0x7C || value == 0x7E
+	}
+
+	/**
+	 * Classifies encoded request-target bytes; escape structure is checked by callers.
+	 */
+	public static inline fn IsTargetByte[](value: byte) bool
+	{
+		return HttpRequestSyntax.IsAlpha(value) || HttpRequestSyntax.IsDigit(value)
+			|| value == 0x2D || value == 0x2E || value == 0x5F || value == 0x7E
+			|| value == 0x21 || value == 0x24 || value == 0x26 || value == 0x27
+			|| value == 0x28 || value == 0x29 || value == 0x2A || value == 0x2B
+			|| value == 0x2C || value == 0x3B || value == 0x3D || value == 0x3A
+			|| value == 0x40 || value == 0x2F || value == 0x3F || value == 0x25
+	}
+
+	/**
+	 * Maps uppercase ASCII letters to lowercase; leaves other bytes unchanged.
+	 */
+	public static inline fn Lower[](value: byte) byte
+	{
+		if (value >= 0x41 && value <= 0x5A) {
+			return ((value as int) + 32) as byte
+		}
+
+		return value
+	}
+
+	/**
+	 * Recognizes HTTP optional whitespace: space or horizontal tab.
+	 */
+	public static inline fn IsWhitespace[](value: byte) bool
+	{
+		return value == 0x20 || value == 0x09
+	}
+}

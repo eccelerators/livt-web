@@ -1,0 +1,219 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * One shared HTTP/1.0 encoder over a stable response. Owns only descriptors and
+ * ten decimal digits; borrows all body bytes. The adapter supplies the complete
+ * HTTP byte budget. Invalidate before releasing/repreparing the response.
+ */
+component HttpResponseEncoder<R: IHttpResponse> : IPacketData
+{
+	// Borrowed metadata and body; invalidate this encoder before reusing them.
+	response: R
+
+	// Owned publication flag and cached byte extents.
+	ready: bool
+	bodyLength: int
+	headerLength: int
+
+	// Prepared constant-fragment descriptors and reversed decimal digits.
+	statusOffset: int
+	statusLength: int
+	typeOffset: int
+	typeLength: int
+	allowOffset: int
+	allowLength: int
+	digits: byte[10]
+	digitCount: int
+
+	/**
+	 * Borrows response metadata/body and starts unpublished.
+	 * The caller owns their lifetime and must invalidate this encoder before reuse.
+	 */
+	new(response: R)
+	{
+		this.response = response
+		this.Invalidate()
+	}
+
+	/**
+	 * Clears encoder publication and cached lengths without releasing the response.
+	 * Stop dependent readers before invalidating or preparing again.
+	 */
+	public fn Invalidate()
+	{
+		ready = false
+		bodyLength = 0
+		headerLength = 0
+		digitCount = 0
+	}
+
+	/**
+	 * Failed preparation publishes nothing; no body reads occur here.
+	 */
+	public fn TryPrepare(maxBytes: int) bool
+	{
+		this.Invalidate()
+
+		if (maxBytes < 0 || !response.IsReady()) {
+			return false
+		}
+
+		var status = response.GetStatus()
+		var contentType = response.GetContentType()
+		var allowed = response.GetAllowedMethods()
+
+		if (!HttpResponseSyntax.IsSupported(status, contentType, allowed)) {
+			return false
+		}
+
+		var available = response.GetAvailableLength()
+
+		if (available < 0 || available > maxBytes) {
+			return false
+		}
+
+		statusOffset = HttpResponseSyntax.GetStatusOffset(status)
+		statusLength = HttpResponseSyntax.GetStatusLength(status)
+		typeOffset = HttpResponseSyntax.GetContentTypeOffset(contentType)
+		typeLength = HttpResponseSyntax.GetContentTypeLength(contentType)
+		allowOffset = HttpResponseSyntax.GetAllowedMethodsOffset(allowed)
+		allowLength = HttpResponseSyntax.GetAllowedMethodsLength(allowed)
+
+		// At most ten iterations for a nonnegative 32-bit int. Zero has one digit.
+		var remaining = available
+
+		while (true) {
+			digits[digitCount] = ((remaining % 10) + 48) as byte
+			digitCount = digitCount + 1
+			remaining = remaining / 10
+
+			if (remaining == 0) {
+				break
+			}
+		}
+
+		// Content-Length prefix is 16 bytes; final CRLF/Connection/CRLF is 23.
+		var size = statusLength + typeLength + allowLength + HttpResponseSyntax.LENGTH_PREFIX_LENGTH + digitCount + HttpResponseSyntax.END_LENGTH
+
+		// Subtract first, avoiding overflow even for INT_MAX-sized providers.
+		if (size > maxBytes - available) {
+			this.Invalidate()
+			return false
+		}
+
+		bodyLength = available
+		headerLength = size
+		ready = true
+		return true
+	}
+
+	/**
+	 * Reports current publication availability, not a reservation.
+	 * Keep the borrowed providers stable until all consumers finish.
+	 */
+	override fn IsReady() bool
+	{
+		if (ready && !response.IsReady()) {
+			this.Invalidate()
+		}
+
+		return ready
+	}
+
+	/**
+	 * Returns the published HTTP header length in bytes, or zero when unavailable.
+	 */
+	public fn GetHeaderLength() int
+	{
+		if (!this.IsReady()) {
+			return 0
+		}
+
+		return headerLength
+	}
+
+	/**
+	 * Returns the currently advertised byte extent, or zero without publication.
+	 * The extent is a snapshot; it does not reserve the backing storage.
+	 */
+	override fn GetAvailableLength() int
+	{
+		if (!this.IsReady()) {
+			return 0
+		}
+
+		return headerLength + bodyLength
+	}
+
+	/**
+	 * Reads a zero-based byte within the published extent. Check PacketDataResult
+	 * before using value; keep all borrowed providers stable throughout the read.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (!this.IsReady()) {
+			return PacketDataResult.NotReady
+		}
+
+		if (index < 0 || index >= headerLength + bodyLength) {
+			return PacketDataResult.Invalid
+		}
+
+		if (index < headerLength) {
+			value = this.GetHeaderByte(index)
+			return PacketDataResult.Success
+		}
+
+		var bodyByte: byte = 0x00
+		var result = response.TryRead(index - headerLength, bodyByte)
+
+		if (result != PacketDataResult.Success) {
+			this.Invalidate()
+			return result
+		}
+
+		value = bodyByte
+		return PacketDataResult.Success
+	}
+
+	/**
+	 * Maps a validated header index through status, media type, optional Allow,
+	 * Content-Length digits and CRLF/Connection fragments. Requires a prepared header.
+	 */
+	fn GetHeaderByte(index: int) byte
+	{
+		if (index < statusLength) {
+			return HttpResponseSyntax.GetByte(statusOffset + index)
+		}
+
+		var offset = index - statusLength
+
+		if (offset < typeLength) {
+			return HttpResponseSyntax.GetByte(typeOffset + offset)
+		}
+
+		offset = offset - typeLength
+
+		if (offset < allowLength) {
+			return HttpResponseSyntax.GetByte(allowOffset + offset)
+		}
+
+		offset = offset - allowLength
+
+		if (offset < HttpResponseSyntax.LENGTH_PREFIX_LENGTH) {
+			return HttpResponseSyntax.GetLengthPrefixByte(offset)
+		}
+
+		offset = offset - HttpResponseSyntax.LENGTH_PREFIX_LENGTH
+
+		if (offset < digitCount) {
+			return digits[digitCount - 1 - offset]
+		}
+
+		return HttpResponseSyntax.GetEndByte(offset - digitCount)
+	}
+}

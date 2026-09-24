@@ -1,0 +1,54 @@
+namespace Livt.Web.Tests.Http
+
+using Livt.Net
+using Livt.Web.Http
+
+@Test
+component HttpRequestBoundsTest
+{
+	data: HttpRequestTestData
+	bytes: HttpRequestParser<HttpRequestTestData, 18, 4, 1>
+	target: HttpRequestParser<HttpRequestTestData, 128, 4, 1>
+
+	new()
+	{
+		data = new HttpRequestTestData()
+		bytes = new HttpRequestParser<HttpRequestTestData, 18, 4, 1>(data)
+		target = new HttpRequestParser<HttpRequestTestData, 128, 4, 1>(data)
+	}
+
+	fn Select(which: int)
+	{
+		bytes.Invalidate()
+		target.Invalidate()
+		data.Select(which)
+	}
+
+	@Test
+	fn ByteBoundBeforeSourceRead()
+	{
+		this.Select(0)
+		assert bytes.TryParse() == HttpRequestResult.Ready
+		this.Select(0)
+		data.Limit(19)
+		assert bytes.TryParse() == HttpRequestResult.TooLarge
+		assert data.GetReads() == 0
+		this.Select(0)
+		data.Limit(-1)
+		assert bytes.TryParse() == HttpRequestResult.ReadFailure
+		assert data.GetReads() == 0
+	}
+
+	@Test
+	fn ExactTargetAndHeaderBounds()
+	{
+		this.Select(40)
+		assert target.TryParse() == HttpRequestResult.Ready
+		this.Select(41)
+		assert target.TryParse() == HttpRequestResult.TooLarge
+		this.Select(42)
+		assert target.TryParse() == HttpRequestResult.Ready
+		this.Select(43)
+		assert target.TryParse() == HttpRequestResult.TooLarge
+	}
+}

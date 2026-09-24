@@ -1,0 +1,300 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * ARP/ICMP/TCP adapter over one application-owned RX store and parser pair.
+ * Owns Net services and the narrow TCP transport; borrows the HTTP application.
+ * No AXI dependency. TryRelease must succeed before the owner reuses receive RAM.
+ */
+component HttpNetworkEndpoint<S: IPacketData, A: IHttpApplication, CAPACITY: int = 128> : IPacketData
+{
+	// Borrowed capture and owned adapters sharing external protocol parsers.
+	source: S
+	network: NetworkService<S, CAPACITY>
+	tcp: HttpTcpTransport<S, A>
+
+	// One active frame/transaction; network and HTTP responses cannot overlap.
+	phase: HttpTransportState
+	kind: HttpNetworkResponse
+
+	/**
+	 * Borrows one source, its shared Ethernet/IPv4/TCP parsers and the application.
+	 * Owns Net services and the TCP adapter; all bindings share one clock/reset domain.
+	 * Starts Idle and never releases the caller-owned receive store.
+	 */
+	new(source: S, ethernet: EthernetFrameParser<S>, ipv4: Ipv4PacketParser<EthernetFrameParser<S>>,
+		connection: TcpConnectionRecognizer<S>, application: A,
+		localMac: byte[6], localIp: byte[4], localPort: byte[2])
+	{
+		this.source = source
+		network = new NetworkService<S, CAPACITY>(source, ethernet, ipv4, localMac, localIp)
+		tcp = new HttpTcpTransport<S, A>(connection, application, localMac, localIp, localPort)
+	}
+
+	/**
+	 * Handles one stable published capture when Idle/NotReady; active calls return
+	 * the existing phase. The owner must not reparse or reuse receive storage while
+	 * a response is pending, prepared or retained.
+	 */
+	public fn HandleFrame() HttpTransportState
+	{
+		if (phase != HttpTransportState.Idle && phase != HttpTransportState.NotReady) {
+			return phase
+		}
+
+		if (!source.IsReady()) {
+			phase = HttpTransportState.NotReady
+			return phase
+		}
+
+		// Release TCP descendants before Net reuses the common parser pair.
+		if (tcp.TryRelease() != PacketDataResult.Success) {
+			return this.Fail()
+		}
+
+		var result = network.TryHandle()
+
+		if (result == ServiceResult.Prepared) {
+			kind = HttpNetworkResponse.IcmpEcho
+
+			if (network.GetResponseProtocol() == NetworkProtocol.Arp) {
+				kind = HttpNetworkResponse.Arp
+			}
+
+			phase = HttpTransportState.Prepared
+			return phase
+		}
+
+		if (result != ServiceResult.Ignored) {
+			return this.Fail()
+		}
+
+		var progress = tcp.HandleFrame()
+		return this.AcceptTcp(progress)
+	}
+
+	/**
+	 * Copies the TCP phase and selects the corresponding published response kind.
+	 */
+	fn AcceptTcp(progress: HttpTransportState) HttpTransportState
+	{
+		phase = progress
+		kind = HttpNetworkResponse.None
+
+		if (progress == HttpTransportState.Pending || progress == HttpTransportState.Prepared) {
+			kind = HttpNetworkResponse.TcpSynAck
+
+			if (tcp.IsHttpResponse()) {
+				kind = HttpNetworkResponse.Http
+			}
+		}
+
+		return progress
+	}
+
+	/**
+	 * Resumes only pending HTTP work; repeated calls do not start another request.
+	 */
+	public fn Poll() HttpTransportState
+	{
+		if (phase == HttpTransportState.Pending) {
+			var progress = tcp.Poll()
+			return this.AcceptTcp(progress)
+		}
+
+		return phase
+	}
+
+	/**
+	 * Returns the current lifecycle phase without progressing the transaction.
+	 */
+	public fn GetState() HttpTransportState
+	{
+		return phase
+	}
+
+	/**
+	 * Returns the selected frame protocol; inspect GetState before consuming bytes.
+	 */
+	public fn GetResponseKind() HttpNetworkResponse
+	{
+		return kind
+	}
+
+	/**
+	 * Distinguishes Net-owned ARP/ICMP responses from the TCP response graph.
+	 */
+	fn IsNetworkResponse() bool
+	{
+		return kind == HttpNetworkResponse.Arp || kind == HttpNetworkResponse.IcmpEcho
+	}
+
+	/**
+	 * Records local emission and retains readable response bytes.
+	 * Returns false if publication is unavailable; success is not peer acknowledgement.
+	 */
+	public fn MarkEmitted() bool
+	{
+		if (!this.IsReady()) {
+			return false
+		}
+
+		if (!this.IsNetworkResponse() && !tcp.MarkEmitted()) {
+			this.Fail()
+			return false
+		}
+
+		phase = HttpTransportState.Retained
+		return true
+	}
+
+	/**
+	 * Completion asserts that the transport retains no further readers.
+	 */
+	public fn Complete() bool
+	{
+		if (phase != HttpTransportState.Retained) {
+			return false
+		}
+
+		if (this.IsNetworkResponse()) {
+			network.TryReleaseResponse()
+			phase = HttpTransportState.Completed
+			return true
+		}
+
+		if (!tcp.Complete()) {
+			this.Fail()
+			return false
+		}
+
+		phase = HttpTransportState.Completed
+		return true
+	}
+
+	/**
+	 * Requires stopped downstream readers. Cancels HTTP work, closes response views
+	 * and resets the narrow TCP session without releasing caller-owned receive storage.
+	 */
+	public fn Abort()
+	{
+		tcp.Abort()
+
+		if (network.IsReady()) {
+			network.TryReleaseResponse()
+		}
+
+		phase = HttpTransportState.Aborted
+	}
+
+	/**
+	 * Invalidates response descendants, aborts HTTP work and records Failed.
+	 */
+	fn Fail() HttpTransportState
+	{
+		this.Abort()
+		phase = HttpTransportState.Failed
+		return phase
+	}
+
+	/**
+	 * Returns Busy while pending, prepared or retained. Otherwise invalidates
+	 * descendants and returns to Idle before the owner may reuse receive storage.
+	 */
+	public fn TryRelease() PacketDataResult
+	{
+		if (phase == HttpTransportState.Pending || phase == HttpTransportState.Prepared || phase == HttpTransportState.Retained) {
+			return PacketDataResult.Busy
+		}
+
+		var result = tcp.TryRelease()
+
+		if (result != PacketDataResult.Success) {
+			return result
+		}
+
+		network.ClearDiagnostics()
+		phase = HttpTransportState.Idle
+		kind = HttpNetworkResponse.None
+		return PacketDataResult.Success
+	}
+
+	/**
+	 * Reports current publication availability, not a reservation.
+	 * Keep the borrowed providers stable until all consumers finish.
+	 */
+	override fn IsReady() bool
+	{
+		if (phase != HttpTransportState.Prepared && phase != HttpTransportState.Retained) {
+			return false
+		}
+
+		var ready = false
+
+		if (this.IsNetworkResponse()) {
+			ready = network.IsReady()
+		}
+		else {
+			ready = tcp.IsReady()
+		}
+
+		if (!ready) {
+			this.Fail()
+		}
+
+		return ready
+	}
+
+	/**
+	 * Returns the currently advertised byte extent, or zero without publication.
+	 * The extent is a snapshot; it does not reserve the backing storage.
+	 */
+	override fn GetAvailableLength() int
+	{
+		if (!this.IsReady()) {
+			return 0
+		}
+
+		if (this.IsNetworkResponse()) {
+			return network.GetAvailableLength()
+		}
+
+		return tcp.GetAvailableLength()
+	}
+
+	/**
+	 * Reads a zero-based byte within the published extent. Check PacketDataResult
+	 * before using value; keep all borrowed providers stable throughout the read.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (!this.IsReady()) {
+			return PacketDataResult.NotReady
+		}
+
+		if (index < 0 || index >= this.GetAvailableLength()) {
+			return PacketDataResult.Invalid
+		}
+
+		var actual: byte = 0x00
+		var result: PacketDataResult = PacketDataResult.NotReady
+
+		if (this.IsNetworkResponse()) {
+			result = network.TryRead(index, actual)
+		}
+		else {
+			result = tcp.TryRead(index, actual)
+		}
+
+		if (result != PacketDataResult.Success) {
+			this.Fail()
+			return result
+		}
+
+		value = actual
+		return PacketDataResult.Success
+	}
+}

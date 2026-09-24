@@ -1,0 +1,27 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * Published response body and metadata, excluding HTTP headers. Keep all values
+ * stable until every encoder/transport reader has finished. No body ownership
+ * transfers to the encoder. GetAllowedMethods describes a 405 response only.
+ */
+interface IHttpResponse : IPacketData
+{
+	/**
+	 * Returns the selected response status; use only while IsReady is true.
+	 */
+	fn GetStatus() HttpStatus
+
+	/**
+	 * Returns the selected body media type; use only while IsReady is true.
+	 */
+	fn GetContentType() HttpContentType
+
+	/**
+	 * Returns the selected response Allow set, not the routing tree's match set.
+	 * Use only while IsReady is true; None omits the Allow header.
+	 */
+	fn GetAllowedMethods() HttpAllowedMethods
+}

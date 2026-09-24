@@ -1,0 +1,94 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * Exact encoded path matcher over one shared parsed request and an immutable
+ * application path provider. Owns no path copy. Configuration is checked within
+ * MAX_PATH on each match; queries, normalization and decoding are not matchers.
+ */
+component HttpPath<R: IHttpRequest, P: IPacketData, MAX_PATH: int = 128> : IHttpRouteMatcher
+{
+	static assert MAX_PATH > 0, "Path bound must be positive"
+
+	// Borrowed request and application-owned constant path bytes.
+	request: R
+	path: P
+
+	/**
+	 * Borrows the request and encoded path. Keep path bytes immutable during matching;
+	 * the matcher and its route must refer to this same request instance.
+	 */
+	new(request: R, path: P)
+	{
+		this.request = request
+		this.path = path
+	}
+
+	/**
+	 * Validates the configured encoded path within MAX_PATH, then compares exact
+	 * request path bytes. Queries are excluded; no decoding or normalization occurs.
+	 * NotReady is retryable; bad configuration or checked-read failure returns Failed.
+	 */
+	override fn TryMatch() HttpMatchResult
+	{
+		if (!request.IsReady() || !path.IsReady()) {
+			return HttpMatchResult.NotReady
+		}
+
+		var length = path.GetAvailableLength()
+		var actualLength = request.GetPathLength()
+
+		if (length <= 0 || length > MAX_PATH || actualLength <= 0) {
+			return HttpMatchResult.Failed
+		}
+
+		var matches = length == actualLength
+		var hexRemaining: int = 0
+
+		for (var i: int = 0; i < length; i++) {
+			var expected: byte = 0x00
+
+			if (path.TryRead(i, expected) != PacketDataResult.Success) {
+				return HttpMatchResult.Failed
+			}
+
+			if (!HttpRequestSyntax.IsTargetByte(expected) || expected == 0x3F || (i == 0 && expected != 0x2F)) {
+				return HttpMatchResult.Failed
+			}
+
+			if (hexRemaining > 0) {
+				if (!HttpRequestSyntax.IsHex(expected)) {
+					return HttpMatchResult.Failed
+				}
+
+				hexRemaining = hexRemaining - 1
+			}
+			elif (expected == 0x25) {
+				hexRemaining = 2
+			}
+
+			if (length == actualLength) {
+				var actual: byte = 0x00
+
+				if (request.TryReadPath(i, actual) != PacketDataResult.Success) {
+					return HttpMatchResult.Failed
+				}
+
+				if (actual != expected) {
+					matches = false
+				}
+			}
+		}
+
+		if (hexRemaining != 0) {
+			return HttpMatchResult.Failed
+		}
+
+		if (matches) {
+			return HttpMatchResult.Match
+		}
+
+		return HttpMatchResult.NoMatch
+	}
+}

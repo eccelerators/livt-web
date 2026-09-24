@@ -1,163 +1,81 @@
 # Livt.Web
 
-`Livt.Web` provides reusable HTTP/1.0 application-layer components for Livt
-hardware designs. It sits above `Livt.Net` and builds compact, deterministic
-web endpoints for FPGA projects that exchange complete Ethernet frames.
+A bounded HTTP application layer for FPGA designs. Routing, request parsing and
+response encoding are independent of AXI, receive RAM and the Ethernet driver.
+Requires Livt.Net 1.1.0-dev; development builds resolve its sibling checkout.
 
-The package intentionally supports a narrow embedded-web subset: HTTP GET
-recognition, fixed-body HTTP/1.0 responses, a minimal single-connection TCP
-handshake, and web endpoint dispatch over `Livt.Net` ARP, ICMP, IPv4, and TCP
-helpers.
+## Composition
 
-## Package
+- `HttpRequestParser<S>` parses one complete bounded request and exposes checked
+  path, query and header views over the borrowed source.
+- `HttpPath<R, P>` compares an exact encoded URL path against application-owned
+  immutable bytes. `Route<R, M, H>` binds a method, matcher and handler;
+  `RouteChain<A, B>` composes ordered routes without per-route packet buffers.
+- `StaticContent<P>` publishes an existing body. Implement `IHttpHandler` for
+  pending work or application actions; Begin accepts once, Poll resumes and End
+  closes the transaction. Keep published body bytes stable until End.
+- `HttpRouter<T>` selects a handler or shared 404/405 response. `HttpApplication<S, T>`
+  owns one encoder and coordinates request/handler/publication lifetimes.
+- `HttpServer<S, T, CAPACITY = 1514>` is the default Ethernet assembly: it owns a
+  router, application and `HttpNetworkEndpoint` around the supplied shared parser
+  graph and route tree. It never owns or copies receive storage.
 
-```toml
-[dependencies]
-Livt.Web = "0.1.0"
-```
-
-`Livt.Web` depends on `Livt.Net 1.1.0-dev` for Ethernet, ARP, ICMP, IPv4, TCP,
-checksum, and frame-composition primitives.
-
-## Namespaces
-
-Production components live in `Livt.Web.Http`. Tests use
-`Livt.Web.Tests.Http`.
-
-| Area | Components |
-|---|---|
-| HTTP recognition | `HttpGetRootRecognizer`, `HttpGetRecognizer`, `HttpRequestRecognizer` |
-| HTTP response | `HttpResponseGenerator`, `HttpResponseFrameComposer` |
-| Server state | `HttpServer` |
-| Endpoint facade | `NetworkEndpoint`, `WebServer` |
-
-## API Overview
-
-### Recognizers
-
-`HttpGetRootRecognizer` detects the exact token `GET / ` at a configured frame
-offset. `HttpGetRecognizer` generalizes that shape with a configured path of up
-to seven bytes. `HttpRequestRecognizer<S>` matches a configured token in a bounded HTTP payload.
-`HttpServer` borrows Ethernet/IPv4 parsing, owns its TCP descendant and applies local endpoint/flag policy.
-
-### Response Generation
-
-`HttpResponseGenerator` emits an `HTTP/1.0 200 OK` response with
-`Content-Type: text/html` and a decimal `Content-Length`. The caller supplies
-a published `IPacketData` body to `HttpResponseFrameComposer<P>`. It prepares
-`HttpResponsePayload<P>` inside Net TCP/IPv4/Ethernet components. TCP checksums
-cover the actual HTTP header/body byte stream, including odd header lengths.
-
-### Server And Endpoint Flow
-
-`NetworkEndpoint<C>` and `WebServer<C>` take `content` as the first constructor
-argument, followed by local MAC, IP and port. The endpoint owns one receive RAM
-and one Ethernet/IPv4 parser pair shared by Net services and HTTP.
-
-For custom composition, `HttpServer<S: IPacketData, C: IHttpContent>` takes
-`(ethernet, ipv4, content, localMac, localIp, localPort)`. It borrows those parsers
-and the published capture behind them; it does not allocate, load, publish or
-release receive storage. Its owner closes request views before source reuse.
-Use `InvalidateRequest()` before lending shared parsers to another consumer;
-`BeginFrame()` also clears responses and releases selected content while retaining
-connection state. Paths remain configurable:
+Construct the capture provider and Ethernet/IPv4/TCP parsers once, then construct
+`HttpRequestParser<TcpConnectionRecognizer<S>>` over that same TCP view. Bind every
+route and matcher to that request instance. Finally construct:
 
 ```livt
-SetRoutePath(route, path)
-AcceptedRoute(route)
+var server = new HttpServer<S, Routes>(
+    source, ethernet, ipv4, connection, request, routes,
+    localMac, localIp, localPort)
 ```
 
-`NetworkEndpoint` delegates ARP/ICMP preparation and Ethernet/IPv4 classification
-to `Livt.Net.NetworkService`, while `HttpServer` retains HTTP routing and the
-existing TCP connection state. `WebServer<C>` is a compact facade over
-`NetworkEndpoint` for applications that want a single web-facing component.
-`IHttpContent.TrySelect(route)` publishes a stable body and `Release()` ends that
-publication. The endpoint is the exclusive selector/releaser of its bound content.
-The content owner must not modify the selected bytes during preparation or
-emission. Finish all response reads before `BeginFrame()` releases the previous response;
-repeated `HandleFrame()` calls preserve an already selected response.
+`S` and `Routes` above stand for the concrete provider and route-tree types.
+`livt-web-app` supplies a complete consumer with application-owned `/`, `/about`
+and `/status` declarations, static pages and a dynamic status snapshot.
+There are no library-owned URL IDs or fixed route slots.
 
-The common loaded-frame flow is:
+Advanced consumers can compose `HttpRouter`, `HttpApplication` and
+`HttpNetworkEndpoint` separately, or use `IHttpApplication` with another transport.
+See [application and transport contracts](docs/http-application.md),
+[request parsing](docs/http-request-parser.md), [routing](docs/http-routing.md),
+and [response encoding](docs/http-response-encoding.md).
 
-1. `BeginFrame()`
-2. `LoadRxByte(index, value)` for each captured byte, appending in ascending order
-3. `HandleFrame()`
-4. `HasResponse()`
-5. `GetResponseLength()` and `TryReadResponse(index, value)`; use `value` only on Success
+## Ownership and completion
 
-Reception uses a published bounded byte provider. `BeginFrame()` invalidates prior
-parser views before releasing storage; only bytes loaded for the current frame
-are readable. IPv4 total length limits TCP payload recognition, so Ethernet
-padding cannot supply missing request bytes. Supported header-only captures may
-match a complete `GET <path> ` token; this is not complete HTTP/TCP validation.
-Receive checksums remain unchecked. ICMP replies require a complete IP capture.
+1. Acquire/publish a complete receive extent after the preceding `TryRelease`
+   succeeds. The driver and parsers must share a reset domain.
+2. Call `HandleFrame`, then `Poll` while Pending. Never reuse RX while active.
+3. When Prepared, check the complete frame length and every `TryRead` result.
+   Retain the request, handler and body through transmitter admission/backpressure.
+4. After successful local emission call `MarkEmitted`, then `Complete` once all
+   readers have stopped. On failure, stop readers before calling `Abort`.
+5. Call `TryRelease` before releasing RX or changing any borrowed content.
 
-`HttpRequestRecognizer<S: IPacketData>` binds an HTTP payload provider and exposes
-`IsGetRequest()` plus path configuration. It no longer accepts a raw frame, IP
-address or port. `HttpServer` parses its Net protocol graph once per frame and
-applies endpoint/flag policy before invoking its route recognizers.
+A response-size budget failure publishes nothing. One encoder reads each selected
+body; no application-supplied checksum or raw body-byte injection hook is needed.
 
-## Scope
+## Supported subset
 
-In scope:
+The core handles bounded bodyless requests, exact encoded paths and explicit method
+routes, plus 404/405 with Allow metadata. It does not decode/normalize paths or
+provide middleware, streaming bodies, TLS or general HTTP server behavior. HEAD
+body suppression is not implemented; the demo declares GET routes only.
 
-- HTTP/1.0 GET recognition over fixed-header Ethernet/IPv4/TCP frames
-- Route slots for short configured paths
-- HTTP/1.0 200 OK response frames with caller-owned body bytes
-- Minimal TCP SYN, ACK, PSH+ACK flow for one connection at a time
-- ARP and ICMP endpoint dispatch through `Livt.Net`
+The included Ethernet adapter is the narrow single-peer demo TCP transport:
+one complete request in one captured segment, one response fitting the 1460-byte
+HTTP budget, FIN-bearing response and no retransmission, reassembly or reliable
+TCP session engine. Receive checksum/window validation limitations are detailed
+in the transport document. Complete header terminators are required; captured
+request prefixes are rejected. The default parser bound is 1024 HTTP bytes.
 
-Out of scope: IPv6, UDP application protocols, TLS, QUIC, TCP option negotiation, SACK,
-window scaling, congestion control, chunked encoding, compression, keep-alive,
-POST handling, dynamic content stores, and multiple simultaneous connections.
+## Verification
 
-## Build And Test
+Run `livt test --events`. Tests compare independent HTTP bytes and complete network
+frames and cover parsing bounds, routing priority, handler failures, retention,
+cancellation and provider failures. Livt tests do not establish FPGA utilization
+or timing. No synthesis is required for ordinary framework iteration.
 
-```sh
-livt test
-```
-
-The configured test list is defined in [`livt.toml`](livt.toml). To force test
-regeneration without deleting synchronized dependencies:
-
-```sh
-livt test -f
-```
-
-## Development Notes
-
-- Keep Ethernet, ARP, IPv4, ICMP, TCP, checksum, and frame-I/O primitives in
-  `Livt.Net`.
-- Keep HTTP recognition, response generation, TCP/HTTP server state, and web
-  endpoint dispatch in `Livt.Web.Http`.
-- Keep route meaning, page content, and board integration in application
-  packages.
-- Keep receive offsets and bounds inside protocol components; pass bounded
-  payload providers to HTTP recognition. Prepare response graphs separately from
-  receive parsing, then propagate checked read failures.
-- Document compiler workarounds only while they remain reproducible.
-
-## License
-
-This project is licensed under the MIT License. See [LICENSE](LICENSE).
-
-Development builds use the sibling `livt-net` checkout with Livt.IO 1.2.0-dev.
-Fixtures publish an initialized capture before parsing and invalidate views before
-storage reuse. Livt.Web has no AXI fixtures; link admission, completion and
-backpressure belong to Livt.Net and the application capability tests.
-
-The sibling dependency is required for this development API: an existing registry
-release of Web 0.1.0 is not evidence of compatibility with the redesigned Net.
-Keep local dependencies during development; select new compatible release versions
-and refresh locks together before publishing Web and its consumers.
-
-Network checksums and header encoders use Livt.Net's static helper API. The
-composers supply explicit address/port arrays and keep HTTP state in this package;
-no checksum or byte-builder component instances are required.
-
-The former `SetBodyConfig`/per-byte `GetResponseByte` facade API is removed.
-Implement `IHttpContent` to adapt static, RAM-backed or application-generated
-bodies; the selected provider determines length and bytes. There is no externally
-supplied TCP checksum. Failed preparation exposes no response. See WebApp's
-`WebContent` for a concrete store adapter and the full-frame tests for minimal
-provider-bound construction. HTTP bodies must fit the standard Ethernet frame.
+The legacy `WebServer`, `NetworkEndpoint`, numeric route setters, GET recognizers,
+`IHttpContent` and old response generators/composers have been removed. `HttpServer`
+now denotes the composable assembly above; consumers must migrate to its new API.

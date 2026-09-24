@@ -1,0 +1,129 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * Shared constant fallback bodies. No per-route content store.
+ */
+component HttpRouteFallback : IHttpResponse
+{
+	// Shared immutable plain-text fallback bodies; no per-route copies.
+	const NOT_FOUND[10] = [0x4E, 0x6F, 0x74, 0x20, 0x46, 0x6F, 0x75, 0x6E, 0x64, 0x0A]
+	const METHOD_NOT_ALLOWED[19] = [0x4D, 0x65, 0x74, 0x68, 0x6F, 0x64, 0x20, 0x4E, 0x6F, 0x74, 0x20, 0x41, 0x6C, 0x6C, 0x6F, 0x77, 0x65, 0x64, 0x0A]
+
+	// Prepared error descriptor; constants are never copied into a body buffer.
+	status: HttpStatus
+	allowedMethods: HttpAllowedMethods
+
+	/**
+	 * Clears the fallback descriptor; shared constant bodies require no release.
+	 */
+	public fn Invalidate()
+	{
+		status = HttpStatus.Unknown
+		allowedMethods = HttpAllowedMethods.None
+	}
+
+	/**
+	 * Publishes a shared plain-text 404 or a supported 405/Allow response.
+	 * Other dispatch outcomes return false with no publication.
+	 */
+	public fn TryPrepare(dispatch: RouteDispatch, allowedMethods: HttpAllowedMethods) bool
+	{
+		this.Invalidate()
+
+		if (dispatch == RouteDispatch.NotFound) {
+			status = HttpStatus.NotFound
+			return true
+		}
+
+		if (dispatch == RouteDispatch.MethodNotAllowed && HttpResponseSyntax.IsSupported(HttpStatus.MethodNotAllowed, HttpContentType.PlainText, allowedMethods)) {
+			status = HttpStatus.MethodNotAllowed
+			this.allowedMethods = allowedMethods
+			return true
+		}
+
+		return false
+	}
+
+	/**
+	 * Reports current publication availability, not a reservation.
+	 * Keep the borrowed providers stable until all consumers finish.
+	 */
+	override fn IsReady() bool
+	{
+		return status != HttpStatus.Unknown
+	}
+
+	/**
+	 * Returns the selected response status; use only while IsReady is true.
+	 */
+	override fn GetStatus() HttpStatus
+	{
+		return status
+	}
+
+	/**
+	 * Returns the selected body media type; use only while IsReady is true.
+	 */
+	override fn GetContentType() HttpContentType
+	{
+		if (!this.IsReady()) {
+			return HttpContentType.Unknown
+		}
+
+		return HttpContentType.PlainText
+	}
+
+	/**
+	 * Returns the selected response Allow set, not the routing tree's match set.
+	 * Use only while IsReady is true; None omits the Allow header.
+	 */
+	override fn GetAllowedMethods() HttpAllowedMethods
+	{
+		return allowedMethods
+	}
+
+	/**
+	 * Returns the currently advertised byte extent, or zero without publication.
+	 * The extent is a snapshot; it does not reserve the backing storage.
+	 */
+	override fn GetAvailableLength() int
+	{
+		if (status == HttpStatus.NotFound) {
+			return 10
+		}
+
+		if (status == HttpStatus.MethodNotAllowed) {
+			return 19
+		}
+
+		return 0
+	}
+
+	/**
+	 * Reads a zero-based byte within the published extent. Check PacketDataResult
+	 * before using value; keep all borrowed providers stable throughout the read.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (!this.IsReady()) {
+			return PacketDataResult.NotReady
+		}
+
+		if (index < 0 || index >= this.GetAvailableLength()) {
+			return PacketDataResult.Invalid
+		}
+
+		if (status == HttpStatus.NotFound) {
+			value = NOT_FOUND[index]
+		}
+		else {
+			value = METHOD_NOT_ALLOWED[index]
+		}
+
+		return PacketDataResult.Success
+	}
+}

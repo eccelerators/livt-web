@@ -1,0 +1,14 @@
+namespace Livt.Web.Prototype
+using Livt.Net
+
+/** Borrowed fully parsed request; path excludes query and retains encoded bytes. */
+interface IHttpRequest
+{
+	fn IsReady() bool
+
+	fn GetMethod() HttpMethod
+
+	fn GetPathLength() int
+
+	fn TryReadPath(index: int, value: out byte) PacketDataResult
+}

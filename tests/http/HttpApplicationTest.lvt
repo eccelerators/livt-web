@@ -1,0 +1,290 @@
+namespace Livt.Web.Tests.Http
+
+using Livt.Net
+using Livt.Web.Http
+
+@Test
+component HttpApplicationTest
+{
+	const WIRE[92] = [0x48, 0x54, 0x54, 0x50, 0x2F, 0x31, 0x2E, 0x30, 0x20, 0x32, 0x30, 0x30, 0x20, 0x4F, 0x4B, 0x0D, 0x0A, 0x43, 0x6F, 0x6E, 0x74, 0x65, 0x6E, 0x74, 0x2D, 0x54, 0x79, 0x70, 0x65, 0x3A, 0x20, 0x61, 0x70, 0x70, 0x6C, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6F, 0x6E, 0x2F, 0x6A, 0x73, 0x6F, 0x6E, 0x0D, 0x0A, 0x43, 0x6F, 0x6E, 0x74, 0x65, 0x6E, 0x74, 0x2D, 0x4C, 0x65, 0x6E, 0x67, 0x74, 0x68, 0x3A, 0x20, 0x33, 0x0D, 0x0A, 0x43, 0x6F, 0x6E, 0x6E, 0x65, 0x63, 0x74, 0x69, 0x6F, 0x6E, 0x3A, 0x20, 0x63, 0x6C, 0x6F, 0x73, 0x65, 0x0D, 0x0A, 0x0D, 0x0A, 0x5B, 0x37, 0x5D]
+	source: RoutingBytes
+	path: RoutingBytes
+	request: HttpRequestParser<RoutingBytes>
+	counter: RoutingCounter
+	handler: CounterContent
+	matcher: HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>
+	route: Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>
+	router: HttpRouter<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>>
+	app: HttpApplication<RoutingBytes, Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>>
+
+	new()
+	{
+		source = new RoutingBytes()
+		path = new RoutingBytes()
+		request = new HttpRequestParser<RoutingBytes>(source)
+		counter = new RoutingCounter()
+		handler = new CounterContent(counter)
+		matcher = new HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>(request, path)
+		route = new Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>(HttpMethod.Get, request, matcher, handler)
+		router = new HttpRouter<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>>(route)
+		app = new HttpApplication<RoutingBytes, Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>>(request, router)
+	}
+
+	fn Reset()
+	{
+		app.Abort()
+		assert app.Release()
+		source.Select(26)
+		path.Select(1)
+		counter.Set(7)
+		handler.ResetCounts()
+	}
+
+	fn Publish()
+	{
+		assert app.Begin(512, true) == HttpApplicationState.Preparing
+		assert app.Poll() == HttpApplicationState.Preparing
+		assert app.Poll() == HttpApplicationState.Published
+	}
+
+	fn CheckBytes()
+	{
+		assert app.GetAvailableLength() == 92
+
+		for (var i: int = 0; i < 92; i++) {
+			var value: byte = 0xFF
+			assert app.TryRead(i, value) == PacketDataResult.Success
+			assert value == WIRE[i]
+		}
+	}
+
+	@Test
+	fn CompleteLifecycleRetainsResponseAfterEmission()
+	{
+		this.Reset()
+		assert app.GetState() == HttpApplicationState.Idle
+		this.Publish()
+		assert app.GetRequestResult() == HttpRequestResult.Ready
+		assert !app.Complete()
+		assert !app.Release()
+		assert app.Begin(0, false) == HttpApplicationState.Published
+		this.CheckBytes()
+		assert app.MarkEmitted()
+		assert app.GetState() == HttpApplicationState.Retained
+		assert !app.Release()
+		counter.Set(9)
+		this.CheckBytes()
+		assert request.IsReady()
+		assert handler.GetEnds() == 0
+		assert app.Complete()
+		assert !app.Complete()
+		assert app.GetState() == HttpApplicationState.Completed
+		assert !app.IsReady()
+		assert !request.IsReady()
+		assert handler.GetEnds() == 1
+		assert source.IsReady()
+		assert app.Release()
+		assert app.GetState() == HttpApplicationState.Idle
+		assert handler.GetEnds() == 1
+	}
+
+	@Test
+	fn IncompleteTransportCaptureDoesNotParse()
+	{
+		this.Reset()
+		source.Limit(5)
+		assert app.Begin(512, false) == HttpApplicationState.AwaitingRequest
+		assert source.GetReads() == 0
+		assert handler.GetStarts() == 0
+		assert app.Poll() == HttpApplicationState.AwaitingRequest
+		source.Select(26)
+		this.Publish()
+		assert handler.GetStarts() == 1
+	}
+
+	@Test
+	fn UnpublishedSourceCanRetryBegin()
+	{
+		this.Reset()
+		source.Release()
+		assert app.Begin(512, true) == HttpApplicationState.AwaitingRequest
+		assert handler.GetStarts() == 0
+		source.Select(26)
+		this.Publish()
+	}
+
+	@Test
+	fn MatchRetryDoesNotRepeatParsingOrBegin()
+	{
+		this.Reset()
+		path.Release()
+		assert app.Begin(512, true) == HttpApplicationState.Matching
+		var reads = source.GetReads()
+		assert app.Begin(0, true) == HttpApplicationState.Matching
+		assert app.Poll() == HttpApplicationState.Matching
+		assert source.GetReads() == reads
+		path.Select(1)
+		assert app.Poll() == HttpApplicationState.Preparing
+		assert app.Begin(0, true) == HttpApplicationState.Preparing
+		assert handler.GetStarts() == 1
+		assert app.Poll() == HttpApplicationState.Preparing
+		assert app.Poll() == HttpApplicationState.Published
+		assert handler.GetStarts() == 1
+	}
+
+	@Test
+	fn CancelPendingThenReuseStorage()
+	{
+		this.Reset()
+		assert app.Begin(512, true) == HttpApplicationState.Preparing
+		assert !app.Release()
+		app.Abort()
+		app.Abort()
+		assert app.GetState() == HttpApplicationState.Aborted
+		assert handler.GetEnds() == 1
+		assert app.Poll() == HttpApplicationState.Aborted
+		assert !request.IsReady()
+		assert app.Release()
+		source.Select(26)
+		counter.Set(8)
+		this.Publish()
+		assert handler.GetStarts() == 2
+	}
+
+	@Test
+	fn ResetPublishedResponse()
+	{
+		this.Reset()
+		this.Publish()
+		app.Abort()
+		assert app.Release()
+		assert app.GetState() == HttpApplicationState.Idle
+		assert !app.IsReady()
+		assert handler.GetEnds() == 1
+		assert app.Poll() == HttpApplicationState.Idle
+	}
+
+	@Test
+	fn TruncatedHttpIsNotARequest()
+	{
+		this.Reset()
+		source.Limit(5)
+		assert app.Begin(512, true) == HttpApplicationState.Failed
+		assert app.GetRequestResult() == HttpRequestResult.Incomplete
+		assert handler.GetStarts() == 0
+		assert !app.IsReady()
+		assert app.Release()
+	}
+
+	@Test
+	fn MalformedRequestNeverRunsHandler()
+	{
+		this.Reset()
+		source.Select(17)
+		assert app.Begin(512, true) == HttpApplicationState.Failed
+		assert handler.GetStarts() == 0
+	}
+
+	@Test
+	fn NegativeBudgetFailsBeforeParsing()
+	{
+		this.Reset()
+		assert app.Begin(-1, true) == HttpApplicationState.Failed
+		assert source.GetReads() == 0
+		assert handler.GetStarts() == 0
+	}
+
+	@Test
+	fn TooSmallResponseBudgetDoesNotPublish()
+	{
+		this.Reset()
+		assert app.Begin(1, true) == HttpApplicationState.Preparing
+		assert app.Poll() == HttpApplicationState.Preparing
+		assert app.Poll() == HttpApplicationState.Failed
+		assert app.GetAvailableLength() == 0
+		assert !app.MarkEmitted()
+		assert handler.GetStarts() == 1
+		assert app.Release()
+		assert handler.GetEnds() == 1
+	}
+
+	@Test
+	fn HandlerFailureRemainsTerminal()
+	{
+		this.Reset()
+		counter.Set(10)
+		assert app.Begin(512, true) == HttpApplicationState.Failed
+		counter.Set(7)
+		assert app.Begin(512, true) == HttpApplicationState.Failed
+		assert app.Poll() == HttpApplicationState.Failed
+		assert handler.GetStarts() == 1
+		assert app.Release()
+		assert handler.GetEnds() == 1
+	}
+
+	@Test
+	fn PendingFailureRequiresRelease()
+	{
+		this.Reset()
+		assert app.Begin(512, true) == HttpApplicationState.Preparing
+		handler.FailPreparation()
+		assert app.Poll() == HttpApplicationState.Failed
+		assert app.Poll() == HttpApplicationState.Failed
+		assert handler.GetStarts() == 1
+		assert app.Release()
+	}
+
+	@Test
+	fn ResponseReadFailureClearsPublication()
+	{
+		this.Reset()
+		this.Publish()
+		handler.FailRead()
+		var value: byte = 0xFF
+		assert app.TryRead(92 - 1, value) == PacketDataResult.Busy
+		assert value == 0x00
+		assert app.GetState() == HttpApplicationState.Failed
+		assert app.GetAvailableLength() == 0
+		assert !app.MarkEmitted()
+		assert app.Release()
+		assert handler.GetEnds() == 1
+	}
+
+	@Test
+	fn BoundsDoNotCancelResponse()
+	{
+		this.Reset()
+		this.Publish()
+		var value: byte = 0xFF
+		assert app.TryRead(-1, value) == PacketDataResult.Invalid
+		assert value == 0x00
+		assert app.TryRead(92, value) == PacketDataResult.Invalid
+		assert value == 0x00
+		assert app.IsReady()
+	}
+
+	@Test
+	fn RequestBorrowLivesThroughRetention()
+	{
+		this.Reset()
+		this.Publish()
+		assert app.MarkEmitted()
+		source.Release()
+		assert !app.IsReady()
+		assert app.GetState() == HttpApplicationState.Failed
+		assert app.Release()
+	}
+
+	@Test
+	fn FallbackLifecycleHasNoHandlerAction()
+	{
+		this.Reset()
+		source.Select(30)
+		assert app.Begin(512, true) == HttpApplicationState.Published
+		assert handler.GetStarts() == 0
+		assert app.MarkEmitted()
+		assert app.Complete()
+		assert app.Release()
+		assert handler.GetEnds() == 0
+	}
+}

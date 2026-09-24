@@ -1,0 +1,165 @@
+namespace Livt.Web.Prototype
+using Livt.Net
+
+/** Two heterogeneous leaves prove dispatch and exclusive lifecycle ownership. */
+component RouteChain<A: IHttpRoute, B: IHttpRoute> : IHttpHandler
+{
+	first: A
+	second: B
+	selection: RouteSelection
+
+	new(first: A, second: B)
+	{
+		this.first = first
+		this.second = second
+	}
+
+	public fn Select() RouteDispatch
+	{
+		if (selection != RouteSelection.None) {
+			return RouteDispatch.Selected
+		}
+
+		var firstMatch = first.TryMatchPath()
+
+		if (firstMatch == HttpMatchResult.NotReady) {
+			return RouteDispatch.NotReady
+		}
+
+		if (firstMatch == HttpMatchResult.Failed) {
+			return RouteDispatch.Failed
+		}
+
+		if (firstMatch == HttpMatchResult.Match && first.AllowsMethod()) {
+			selection = RouteSelection.First
+			return RouteDispatch.Selected
+		}
+
+		var secondMatch = second.TryMatchPath()
+
+		if (secondMatch == HttpMatchResult.NotReady) {
+			return RouteDispatch.NotReady
+		}
+
+		if (secondMatch == HttpMatchResult.Failed) {
+			return RouteDispatch.Failed
+		}
+
+		if (secondMatch == HttpMatchResult.Match && second.AllowsMethod()) {
+			selection = RouteSelection.Second
+			return RouteDispatch.Selected
+		}
+
+		if (firstMatch == HttpMatchResult.Match || secondMatch == HttpMatchResult.Match) {
+			return RouteDispatch.MethodNotAllowed
+		}
+
+		return RouteDispatch.NotFound
+	}
+
+	override fn End()
+	{
+		if (selection == RouteSelection.First) {
+			first.End()
+		}
+
+		if (selection == RouteSelection.Second) {
+			second.End()
+		}
+
+		selection = RouteSelection.None
+	}
+
+	override fn Begin() HttpPreparation
+	{
+		if (selection == RouteSelection.First) {
+			return first.Begin()
+		}
+
+		if (selection == RouteSelection.Second) {
+			return second.Begin()
+		}
+
+		return HttpPreparation.Idle
+	}
+
+	override fn Poll() HttpPreparation
+	{
+		if (selection == RouteSelection.First) {
+			return first.Poll()
+		}
+
+		if (selection == RouteSelection.Second) {
+			return second.Poll()
+		}
+
+		return HttpPreparation.Idle
+	}
+
+	override fn IsReady() bool
+	{
+		if (selection == RouteSelection.First) {
+			return first.IsReady()
+		}
+
+		if (selection == RouteSelection.Second) {
+			return second.IsReady()
+		}
+
+		return false
+	}
+
+	override fn GetStatus() HttpStatus
+	{
+		if (selection == RouteSelection.First) {
+			return first.GetStatus()
+		}
+
+		if (selection == RouteSelection.Second) {
+			return second.GetStatus()
+		}
+
+		return HttpStatus.InternalServerError
+	}
+
+	override fn GetContentType() HttpContentType
+	{
+		if (selection == RouteSelection.First) {
+			return first.GetContentType()
+		}
+
+		if (selection == RouteSelection.Second) {
+			return second.GetContentType()
+		}
+
+		return HttpContentType.PlainText
+	}
+
+	override fn GetAvailableLength() int
+	{
+		if (selection == RouteSelection.First) {
+			return first.GetAvailableLength()
+		}
+
+		if (selection == RouteSelection.Second) {
+			return second.GetAvailableLength()
+		}
+
+		return 0
+	}
+
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (selection == RouteSelection.First) {
+			return first.TryRead(index, value)
+		}
+
+		if (selection == RouteSelection.Second) {
+			return second.TryRead(index, value)
+		}
+
+		return PacketDataResult.NotReady
+	}
+}

@@ -1,0 +1,246 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * Nestable ordered subtree. Select the first path-and-method match. A path-only
+ * match never hides a later matching method. Owns no parser, encoder or body.
+ */
+component RouteChain<A: IHttpRoute, B: IHttpRoute> : IHttpRoute
+{
+	// Exclusive borrowed route subtrees, sharing the same parsed request.
+	first: A
+	second: B
+
+	// Selection and Allow union are frozen until End.
+	selection: RouteSelection
+	dispatch: RouteDispatch
+	matchedMethods: HttpAllowedMethods
+
+	/**
+	 * Borrows ordered subtrees over the same request. First matching method wins;
+	 * construction neither selects a route nor starts any handler.
+	 */
+	new(first: A, second: B)
+	{
+		this.first = first
+		this.second = second
+	}
+
+	/**
+	 * Selects over the shared published request without beginning a handler.
+	 * NotReady may retry; other outcomes remain frozen until End.
+	 */
+	override fn Select() RouteDispatch
+	{
+		if (dispatch != RouteDispatch.Idle && dispatch != RouteDispatch.NotReady) {
+			return dispatch
+		}
+
+		matchedMethods = HttpAllowedMethods.None
+		var firstResult = first.Select()
+
+		if (firstResult == RouteDispatch.Selected) {
+			selection = RouteSelection.First
+			dispatch = firstResult
+			return dispatch
+		}
+
+		if (firstResult != RouteDispatch.NotFound && firstResult != RouteDispatch.MethodNotAllowed) {
+			dispatch = firstResult
+			return dispatch
+		}
+
+		var secondResult = second.Select()
+
+		if (secondResult == RouteDispatch.Selected) {
+			selection = RouteSelection.Second
+			dispatch = secondResult
+			return dispatch
+		}
+
+		if (secondResult != RouteDispatch.NotFound && secondResult != RouteDispatch.MethodNotAllowed) {
+			dispatch = secondResult
+			return dispatch
+		}
+
+		var firstMethods = first.GetMatchedMethods()
+		var secondMethods = second.GetMatchedMethods()
+		var combined = HttpRouteMethods.Union(firstMethods, secondMethods)
+		matchedMethods = combined
+		dispatch = RouteDispatch.NotFound
+
+		if (combined != HttpAllowedMethods.None) {
+			dispatch = RouteDispatch.MethodNotAllowed
+		}
+
+		return dispatch
+	}
+
+	/**
+	 * Returns the supported-method union for matching paths.
+	 * This describes route selection, not a prepared response or a wildcard method.
+	 */
+	override fn GetMatchedMethods() HttpAllowedMethods
+	{
+		if (selection == RouteSelection.First) {
+			return first.GetMatchedMethods()
+		}
+
+		if (selection == RouteSelection.Second) {
+			return second.GetMatchedMethods()
+		}
+
+		return matchedMethods
+	}
+
+	/**
+	 * Ends both child subtrees to clear even unselected cached outcomes.
+	 * Requires stopped response consumers; only started child handlers perform cleanup.
+	 */
+	override fn End()
+	{
+		// Clear even unselected/mismatched children's cached dispatch outcomes.
+		first.End()
+		second.End()
+		selection = RouteSelection.None
+		dispatch = RouteDispatch.Idle
+		matchedMethods = HttpAllowedMethods.None
+	}
+
+	/**
+	 * Starts preparation once for the accepted selection; repeated calls must not
+	 * repeat accepted application actions. Pending work resumes through Poll.
+	 */
+	override fn Begin() HttpPreparation
+	{
+		if (selection == RouteSelection.First) {
+			return first.Begin()
+		}
+
+		if (selection == RouteSelection.Second) {
+			return second.Begin()
+		}
+
+		return HttpPreparation.Idle
+	}
+
+	/**
+	 * Resumes pending preparation without restarting accepted actions.
+	 * Prepared or Failed remains terminal until End.
+	 */
+	override fn Poll() HttpPreparation
+	{
+		if (selection == RouteSelection.First) {
+			return first.Poll()
+		}
+
+		if (selection == RouteSelection.Second) {
+			return second.Poll()
+		}
+
+		return HttpPreparation.Idle
+	}
+
+	/**
+	 * Reports current publication availability, not a reservation.
+	 * Keep the borrowed providers stable until all consumers finish.
+	 */
+	override fn IsReady() bool
+	{
+		if (selection == RouteSelection.First) {
+			return first.IsReady()
+		}
+
+		if (selection == RouteSelection.Second) {
+			return second.IsReady()
+		}
+
+		return false
+	}
+
+	/**
+	 * Returns the selected response status; use only while IsReady is true.
+	 */
+	override fn GetStatus() HttpStatus
+	{
+		if (selection == RouteSelection.First) {
+			return first.GetStatus()
+		}
+
+		if (selection == RouteSelection.Second) {
+			return second.GetStatus()
+		}
+
+		return HttpStatus.Unknown
+	}
+
+	/**
+	 * Returns the selected body media type; use only while IsReady is true.
+	 */
+	override fn GetContentType() HttpContentType
+	{
+		if (selection == RouteSelection.First) {
+			return first.GetContentType()
+		}
+
+		if (selection == RouteSelection.Second) {
+			return second.GetContentType()
+		}
+
+		return HttpContentType.Unknown
+	}
+
+	/**
+	 * Returns the selected response Allow set, not the routing tree's match set.
+	 * Use only while IsReady is true; None omits the Allow header.
+	 */
+	override fn GetAllowedMethods() HttpAllowedMethods
+	{
+		if (selection == RouteSelection.First) {
+			return first.GetAllowedMethods()
+		}
+
+		if (selection == RouteSelection.Second) {
+			return second.GetAllowedMethods()
+		}
+
+		return HttpAllowedMethods.None
+	}
+
+	/**
+	 * Returns the currently advertised byte extent, or zero without publication.
+	 * The extent is a snapshot; it does not reserve the backing storage.
+	 */
+	override fn GetAvailableLength() int
+	{
+		if (selection == RouteSelection.First) {
+			return first.GetAvailableLength()
+		}
+
+		if (selection == RouteSelection.Second) {
+			return second.GetAvailableLength()
+		}
+
+		return 0
+	}
+
+	/**
+	 * Reads a zero-based byte within the published extent. Check PacketDataResult
+	 * before using value; keep all borrowed providers stable throughout the read.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (selection == RouteSelection.First) {
+			return first.TryRead(index, value)
+		}
+
+		if (selection == RouteSelection.Second) {
+			return second.TryRead(index, value)
+		}
+
+		return PacketDataResult.NotReady
+	}
+}

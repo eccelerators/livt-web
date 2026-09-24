@@ -1,0 +1,41 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * Stateless method-set operations; Other is not a wildcard route method.
+ */
+class HttpRouteMethods
+{
+	/**
+	 * Maps GET/HEAD to their singleton Allow set; Other maps to None, never a wildcard.
+	 */
+	public static inline fn FromMethod[](method: HttpMethod) HttpAllowedMethods
+	{
+		if (method == HttpMethod.Get) {
+			return HttpAllowedMethods.Get
+		}
+
+		if (method == HttpMethod.Head) {
+			return HttpAllowedMethods.Head
+		}
+
+		return HttpAllowedMethods.None
+	}
+
+	/**
+	 * Combines two supported method sets without duplicates; None is the identity.
+	 */
+	public static inline fn Union[](first: HttpAllowedMethods, second: HttpAllowedMethods) HttpAllowedMethods
+	{
+		if (first == HttpAllowedMethods.None) {
+			return second
+		}
+
+		if (second == HttpAllowedMethods.None || first == second) {
+			return first
+		}
+
+		return HttpAllowedMethods.GetAndHead
+	}
+}

@@ -1,0 +1,29 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * Begin once; Poll resumes pending work without repeating accepted actions.
+ * Prepared may become Failed if publication is lost; only End permits a restart.
+ * End cancels/completes only after every response reader has stopped.
+ */
+interface IHttpHandler : IHttpResponse
+{
+	/**
+	 * Starts preparation once for the accepted selection; repeated calls must not
+	 * repeat accepted application actions. Pending work resumes through Poll.
+	 */
+	fn Begin() HttpPreparation
+
+	/**
+	 * Resumes pending preparation without restarting accepted actions.
+	 * Prepared may become Failed if publication is lost; Failed persists until End.
+	 */
+	fn Poll() HttpPreparation
+
+	/**
+	 * Requires all response consumers to have stopped. Completes/cancels the handler
+	 * and clears its transaction state; it does not undo accepted application actions.
+	 */
+	fn End()
+}

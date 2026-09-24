@@ -1,0 +1,320 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * Internal request-line scanner. Caches only method/version and target bounds.
+ */
+component HttpRequestLine<S: IPacketData, MAX_BYTES: int, MAX_TARGET: int>
+{
+	static assert MAX_TARGET > 0, "Target bound must be positive"
+
+	// ASCII request-line tokens and version prefix.
+	const GET[3] = [0x47, 0x45, 0x54]
+	const HEAD[4] = [0x48, 0x45, 0x41, 0x44]
+	const VERSION[7] = [0x48, 0x54, 0x54, 0x50, 0x2F, 0x31, 0x2E]
+
+	// Borrowed cursor shared with the header scanner.
+	cursor: HttpRequestCursor<S, MAX_BYTES>
+
+	// Parsed method/version and source-relative path/query descriptors.
+	method: HttpMethod
+	version: HttpVersion
+	pathOffset: int
+	pathLength: int
+	queryOffset: int
+	queryLength: int
+	queryPresent: bool
+	supported: bool
+
+	/**
+	 * Borrows an exclusive cursor; Parse replaces the previous line descriptors.
+	 */
+	new(cursor: HttpRequestCursor<S, MAX_BYTES>)
+	{
+		this.cursor = cursor
+	}
+
+	/**
+	 * Resets line descriptors and consumes method, target and version through CRLF.
+	 * Ready means valid syntax; consult IsSupported before publishing the request.
+	 */
+	public fn Parse() HttpRequestResult
+	{
+		method = HttpMethod.Other
+		version = HttpVersion.Unknown
+		pathLength = 0
+		queryLength = 0
+		queryPresent = false
+		supported = true
+		var result = this.ParseMethod()
+
+		if (result != HttpRequestResult.Ready) {
+			return result
+		}
+
+		result = this.ParseTarget()
+
+		if (result != HttpRequestResult.Ready) {
+			return result
+		}
+
+		return this.ParseVersion()
+	}
+
+	/**
+	 * Consumes a nonempty token through its space separator; classifies GET/HEAD
+	 * while retaining other syntactically valid tokens as Other.
+	 */
+	fn ParseMethod() HttpRequestResult
+	{
+		var count = 0
+		var isGet = true
+		var isHead = true
+		var value: byte = 0x00
+
+		while (true) {
+			if (!cursor.Next(value)) {
+				return cursor.GetResult()
+			}
+
+			if (value == 0x20) {
+				break
+			}
+
+			if (!HttpRequestSyntax.IsToken(value)) {
+				return HttpRequestResult.Malformed
+			}
+
+			if (count < 3) {
+				if (value != GET[count]) {
+					isGet = false
+				}
+			}
+			else {
+				isGet = false
+			}
+
+			if (count < 4) {
+				if (value != HEAD[count]) {
+					isHead = false
+				}
+			}
+			else {
+				isHead = false
+			}
+
+			count = count + 1
+		}
+
+		if (count == 0) {
+			return HttpRequestResult.Malformed
+		}
+
+		if (count == 3 && isGet) {
+			method = HttpMethod.Get
+		}
+		elif (count == 4 && isHead) {
+			method = HttpMethod.Head
+		}
+
+		return HttpRequestResult.Ready
+	}
+
+	/**
+	 * Consumes the bounded encoded target and records path/query ranges.
+	 * Checks percent escapes without decoding; non-origin-form input is unsupported.
+	 */
+	fn ParseTarget() HttpRequestResult
+	{
+		pathOffset = cursor.GetPosition()
+		var count = 0
+		var hexRemaining = 0
+		var value: byte = 0x00
+
+		while (true) {
+			if (!cursor.Next(value)) {
+				return cursor.GetResult()
+			}
+
+			if (value == 0x20) {
+				break
+			}
+
+			if (count >= MAX_TARGET) {
+				return HttpRequestResult.TooLarge
+			}
+
+			if (!HttpRequestSyntax.IsTargetByte(value)) {
+				return HttpRequestResult.Malformed
+			}
+
+			if (count == 0 && value != 0x2F) {
+				supported = false
+			}
+
+			if (hexRemaining > 0) {
+				if (!HttpRequestSyntax.IsHex(value)) {
+					return HttpRequestResult.Malformed
+				}
+
+				hexRemaining = hexRemaining - 1
+			}
+			elif (value == 0x25) {
+				hexRemaining = 2
+			}
+			elif (value == 0x3F && !queryPresent) {
+				queryPresent = true
+				pathLength = count
+				queryOffset = cursor.GetPosition()
+			}
+
+			count = count + 1
+		}
+
+		if (count == 0 || hexRemaining != 0) {
+			return HttpRequestResult.Malformed
+		}
+
+		if (queryPresent) {
+			queryLength = count - pathLength - 1
+		}
+		else {
+			pathLength = count
+		}
+
+		if (pathLength == 0) {
+			return HttpRequestResult.Malformed
+		}
+
+		return HttpRequestResult.Ready
+	}
+
+	/**
+	 * Consumes HTTP version syntax and CRLF; records unsupported numeric versions
+	 * separately from malformed syntax and checked-read failure.
+	 */
+	fn ParseVersion() HttpRequestResult
+	{
+		var value: byte = 0x00
+
+		for (var i = 0; i < 7; i++) {
+			if (!cursor.Next(value)) {
+				return cursor.GetResult()
+			}
+
+			if (i == 5) {
+				if (!HttpRequestSyntax.IsDigit(value)) {
+					return HttpRequestResult.Malformed
+				}
+
+				if (value != VERSION[i]) {
+					supported = false
+				}
+			}
+			elif (value != VERSION[i]) {
+				return HttpRequestResult.Malformed
+			}
+		}
+
+		if (!cursor.Next(value)) {
+			return cursor.GetResult()
+		}
+
+		if (!HttpRequestSyntax.IsDigit(value)) {
+			return HttpRequestResult.Malformed
+		}
+
+		if (value == 0x30) {
+			version = HttpVersion.Http10
+		}
+		elif (value == 0x31) {
+			version = HttpVersion.Http11
+		}
+		else {
+			supported = false
+		}
+
+		if (!cursor.Next(value)) {
+			return cursor.GetResult()
+		}
+
+		if (value != 0x0D) {
+			return HttpRequestResult.Malformed
+		}
+
+		if (!cursor.Next(value)) {
+			return cursor.GetResult()
+		}
+
+		if (value != 0x0A) {
+			return HttpRequestResult.Malformed
+		}
+
+		return HttpRequestResult.Ready
+	}
+
+	/**
+	 * Reports whether the parsed target form and version belong to the supported subset.
+	 */
+	public fn IsSupported() bool
+	{
+		return supported
+	}
+
+	/**
+	 * Returns the method classification from the last successful line parse.
+	 */
+	public fn GetMethod() HttpMethod
+	{
+		return method
+	}
+
+	/**
+	 * Returns the version classification from the last successful line parse.
+	 */
+	public fn GetVersion() HttpVersion
+	{
+		return version
+	}
+
+	/**
+	 * Returns the absolute source-byte start of the parsed encoded path.
+	 */
+	public fn GetPathOffset() int
+	{
+		return pathOffset
+	}
+
+	/**
+	 * Returns the parsed encoded path length in bytes, excluding the query.
+	 */
+	public fn GetPathLength() int
+	{
+		return pathLength
+	}
+
+	/**
+	 * Reports presence of a query separator, including an explicitly empty query.
+	 */
+	public fn HasQuery() bool
+	{
+		return queryPresent
+	}
+
+	/**
+	 * Returns the source-byte start after the query separator; requires HasQuery.
+	 */
+	public fn GetQueryOffset() int
+	{
+		return queryOffset
+	}
+
+	/**
+	 * Returns the parsed encoded query length in bytes, excluding the separator.
+	 */
+	public fn GetQueryLength() int
+	{
+		return queryLength
+	}
+}

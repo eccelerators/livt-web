@@ -1,0 +1,15 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * Matching has no handler side effects. Failed reads are not route misses.
+ */
+interface IHttpRouteMatcher
+{
+	/**
+	 * Checks the bound published request without starting handler work.
+	 * Distinguish retryable NotReady and terminal Failed from a genuine NoMatch.
+	 */
+	fn TryMatch() HttpMatchResult
+}

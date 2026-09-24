@@ -1,0 +1,271 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * HTTP-only transaction owner. Borrows the common parser/router and owns one
+ * encoder. No network offsets, packet copies or source/storage ownership.
+ * The routes must bind this exact parser; one owner serializes the entire graph.
+ */
+component HttpApplication<S: IPacketData, T: IHttpRoute, MAX_BYTES: int = 1024, MAX_TARGET: int = 128, MAX_HEADERS: int = 16> : IHttpApplication
+{
+	// Borrowed views and owned response encoder.
+	request: HttpRequestParser<S, MAX_BYTES, MAX_TARGET, MAX_HEADERS>
+	router: HttpRouter<T>
+	encoder: HttpResponseEncoder<HttpRouter<T>>
+
+	// Frozen transaction budget, parse outcome and lifecycle.
+	phase: HttpApplicationState
+	requestResult: HttpRequestResult
+	budget: int
+
+	/**
+	 * Borrows the same parser/router graph used by the routes and owns one encoder.
+	 * Starts Idle; the caller retains ownership of request and response storage.
+	 */
+	new(request: HttpRequestParser<S, MAX_BYTES, MAX_TARGET, MAX_HEADERS>, router: HttpRouter<T>)
+	{
+		this.request = request
+		this.router = router
+		encoder = new HttpResponseEncoder<HttpRouter<T>>(router)
+	}
+
+	/**
+	 * Accepts a complete request extent and a nonnegative complete-response byte budget.
+	 * Incomplete/unpublished input waits without starting a handler. Once accepted,
+	 * retries preserve the transaction and its frozen budget; use Poll to resume it.
+	 */
+	override fn Begin(maxResponseBytes: int, receiveComplete: bool) HttpApplicationState
+	{
+		if (phase != HttpApplicationState.Idle && phase != HttpApplicationState.AwaitingRequest) {
+			return phase
+		}
+
+		if (maxResponseBytes < 0) {
+			phase = HttpApplicationState.Failed
+			return phase
+		}
+
+		if (!receiveComplete) {
+			phase = HttpApplicationState.AwaitingRequest
+			return phase
+		}
+
+		var parsed = request.TryParse()
+		requestResult = parsed
+
+		if (parsed == HttpRequestResult.NotReady) {
+			phase = HttpApplicationState.AwaitingRequest
+			return phase
+		}
+
+		if (parsed != HttpRequestResult.Ready) {
+			phase = HttpApplicationState.Failed
+			return phase
+		}
+
+		budget = maxResponseBytes
+		phase = HttpApplicationState.Matching
+		return this.Poll()
+	}
+
+	/**
+	 * Resumes route matching or pending handler preparation without repeating accepted
+	 * actions. A terminal phase is retained until completion, cancellation or release.
+	 */
+	override fn Poll() HttpApplicationState
+	{
+		if ((phase == HttpApplicationState.Matching || phase == HttpApplicationState.Preparing) && !request.IsReady()) {
+			phase = HttpApplicationState.Failed
+			return phase
+		}
+
+		if (phase == HttpApplicationState.Matching) {
+			var selected = router.Select()
+
+			if (selected == RouteDispatch.NotReady) {
+				return phase
+			}
+
+			if (selected == RouteDispatch.Failed || selected == RouteDispatch.Idle) {
+				phase = HttpApplicationState.Failed
+				return phase
+			}
+
+			var begun = router.Begin()
+			return this.AcceptPreparation(begun)
+		}
+
+		if (phase == HttpApplicationState.Preparing) {
+			var progress = router.Poll()
+			return this.AcceptPreparation(progress)
+		}
+
+		if (phase == HttpApplicationState.Published || phase == HttpApplicationState.Retained) {
+			this.IsReady()
+		}
+
+		return phase
+	}
+
+	/**
+	 * Converts handler progress into a waiting, failed or budget-checked publication.
+	 * Only Prepared may publish through the single response encoder.
+	 */
+	fn AcceptPreparation(preparation: HttpPreparation) HttpApplicationState
+	{
+		if (preparation == HttpPreparation.Pending) {
+			phase = HttpApplicationState.Preparing
+			return phase
+		}
+
+		if (preparation == HttpPreparation.Prepared && encoder.TryPrepare(budget)) {
+			phase = HttpApplicationState.Published
+			return phase
+		}
+
+		phase = HttpApplicationState.Failed
+		return phase
+	}
+
+	/**
+	 * Returns the current lifecycle phase without progressing the transaction.
+	 */
+	override fn GetState() HttpApplicationState
+	{
+		return phase
+	}
+
+	/**
+	 * Returns the last parse outcome; Release resets it to NotReady.
+	 */
+	override fn GetRequestResult() HttpRequestResult
+	{
+		return requestResult
+	}
+
+	/**
+	 * Records local emission while retaining all response bytes and request borrows.
+	 * Returns false without a readable publication; success is not peer acknowledgement.
+	 */
+	override fn MarkEmitted() bool
+	{
+		if (!this.IsReady()) {
+			return false
+		}
+
+		phase = HttpApplicationState.Retained
+		return true
+	}
+
+	/**
+	 * The transport has stopped every reader and invalidated dependent frames.
+	 */
+	override fn Complete() bool
+	{
+		if (phase != HttpApplicationState.Retained) {
+			return false
+		}
+
+		this.CloseViews()
+		phase = HttpApplicationState.Completed
+		return true
+	}
+
+	/**
+	 * Stop consumers first. End cancels pending work; it does not undo side effects.
+	 */
+	override fn Abort()
+	{
+		this.CloseViews()
+		phase = HttpApplicationState.Aborted
+	}
+
+	/**
+	 * Return to Idle only after completion, failure or explicit cancellation.
+	 */
+	override fn Release() bool
+	{
+		if (phase == HttpApplicationState.Matching || phase == HttpApplicationState.Preparing
+			|| phase == HttpApplicationState.Published || phase == HttpApplicationState.Retained) {
+			return false
+		}
+
+		this.CloseViews()
+		phase = HttpApplicationState.Idle
+		requestResult = HttpRequestResult.NotReady
+		budget = 0
+		return true
+	}
+
+	/**
+	 * Invalidates the encoder before ending handlers and invalidating the request.
+	 * Downstream response readers must already have stopped.
+	 */
+	fn CloseViews()
+	{
+		encoder.Invalidate()
+		router.End()
+		request.Invalidate()
+	}
+
+	/**
+	 * Reports current publication availability, not a reservation.
+	 * Keep the borrowed providers stable until all consumers finish.
+	 */
+	override fn IsReady() bool
+	{
+		if (phase != HttpApplicationState.Published && phase != HttpApplicationState.Retained) {
+			return false
+		}
+
+		if (!encoder.IsReady() || !request.IsReady()) {
+			encoder.Invalidate()
+			phase = HttpApplicationState.Failed
+			return false
+		}
+
+		return true
+	}
+
+	/**
+	 * Returns the currently advertised byte extent, or zero without publication.
+	 * The extent is a snapshot; it does not reserve the backing storage.
+	 */
+	override fn GetAvailableLength() int
+	{
+		if (!this.IsReady()) {
+			return 0
+		}
+
+		return encoder.GetAvailableLength()
+	}
+
+	/**
+	 * Reads a zero-based byte within the published extent. Check PacketDataResult
+	 * before using value; keep all borrowed providers stable throughout the read.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (!this.IsReady()) {
+			return PacketDataResult.NotReady
+		}
+
+		if (index < 0 || index >= encoder.GetAvailableLength()) {
+			return PacketDataResult.Invalid
+		}
+
+		var actual: byte = 0x00
+		var result = encoder.TryRead(index, actual)
+
+		if (result != PacketDataResult.Success) {
+			phase = HttpApplicationState.Failed
+			return result
+		}
+
+		value = actual
+		return PacketDataResult.Success
+	}
+}

@@ -1,0 +1,77 @@
+namespace Livt.Web.Prototype
+using Livt.Net
+
+/** Borrows stable body; End never releases storage owned by the application. */
+component StaticContent<P: IPacketData> : IHttpHandler
+{
+	body: P
+	contentType: HttpContentType
+	preparation: HttpPreparation
+
+	new(body: P, contentType: HttpContentType)
+	{
+		this.body = body
+		this.contentType = contentType
+	}
+
+	override fn Begin() HttpPreparation
+	{
+		if (preparation != HttpPreparation.Idle) {
+			return preparation
+		}
+
+		if (!body.IsReady()) {
+			preparation = HttpPreparation.Failed
+		}
+		else {
+			preparation = HttpPreparation.Prepared
+		}
+
+		return preparation
+	}
+
+	override fn Poll() HttpPreparation
+	{
+		return preparation
+	}
+
+	override fn End()
+	{
+		preparation = HttpPreparation.Idle
+	}
+
+	override fn IsReady() bool
+	{
+		return preparation == HttpPreparation.Prepared
+	}
+
+	override fn GetStatus() HttpStatus
+	{
+		return HttpStatus.Ok
+	}
+
+	override fn GetContentType() HttpContentType
+	{
+		return contentType
+	}
+
+	override fn GetAvailableLength() int
+	{
+		if (!this.IsReady()) {
+			return 0
+		}
+
+		return body.GetAvailableLength()
+	}
+
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (!this.IsReady()) {
+			return PacketDataResult.NotReady
+		}
+
+		return body.TryRead(index, value)
+	}
+}

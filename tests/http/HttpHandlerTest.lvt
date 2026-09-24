@@ -1,0 +1,112 @@
+namespace Livt.Web.Tests.Http
+
+using Livt.Net
+using Livt.Web.Http
+
+@Test
+component HttpHandlerTest
+{
+	body: RoutingBytes
+	content: StaticContent<RoutingBytes>
+	invalidContent: StaticContent<RoutingBytes>
+	source: RoutingBytes
+	path: RoutingBytes
+	request: HttpRequestParser<RoutingBytes>
+	matcher: HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>
+	route: Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>
+	invalidRoute: Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>
+	router: HttpRouter<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>>
+
+	new()
+	{
+		body = new RoutingBytes()
+		content = new StaticContent<RoutingBytes>(body, HttpContentType.Html)
+		invalidContent = new StaticContent<RoutingBytes>(body, HttpContentType.Unknown)
+		source = new RoutingBytes()
+		path = new RoutingBytes()
+		request = new HttpRequestParser<RoutingBytes>(source)
+		matcher = new HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>(request, path)
+		route = new Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>(HttpMethod.Get, request, matcher, content)
+		invalidRoute = new Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>(HttpMethod.Other, request, matcher, content)
+		router = new HttpRouter<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>>(route)
+	}
+
+	fn Reset()
+	{
+		router.End()
+		invalidRoute.End()
+		invalidContent.End()
+		request.Invalidate()
+		source.Select(25)
+		path.Select(0)
+		body.Select(44)
+		assert request.TryParse() == HttpRequestResult.Ready
+	}
+
+	@Test
+	fn StaticLifetime()
+	{
+		this.Reset()
+		assert content.Poll() == HttpPreparation.Idle
+		assert !content.IsReady()
+		assert content.Begin() == HttpPreparation.Prepared
+		assert content.Begin() == HttpPreparation.Prepared
+		assert content.GetAvailableLength() == 4
+		body.Release()
+		assert content.Poll() == HttpPreparation.Failed
+		body.Select(44)
+		assert content.Begin() == HttpPreparation.Failed
+		assert !content.IsReady()
+		content.End()
+		assert body.IsReady()
+		assert content.Begin() == HttpPreparation.Prepared
+		content.End()
+	}
+
+	@Test
+	fn UnpublishedBodyAndInvalidMetadata()
+	{
+		this.Reset()
+		body.Release()
+		assert content.Begin() == HttpPreparation.Failed
+		content.End()
+		body.Select(44)
+		assert invalidContent.Begin() == HttpPreparation.Failed
+		assert !invalidContent.IsReady()
+	}
+
+	@Test
+	fn StaticReadFailure()
+	{
+		this.Reset()
+		assert content.Begin() == HttpPreparation.Prepared
+		body.FailAt(1)
+		var value: byte = 0xFF
+		assert content.TryRead(1, value) == PacketDataResult.Invalid
+		assert value == 0x00
+		assert !content.IsReady()
+		assert content.Poll() == HttpPreparation.Failed
+		content.End()
+	}
+
+	@Test
+	fn InvalidRouteMethodIsNotWildcard()
+	{
+		this.Reset()
+		assert invalidRoute.Select() == RouteDispatch.Failed
+		assert invalidRoute.Begin() == HttpPreparation.Idle
+		assert !invalidRoute.IsReady()
+	}
+
+	@Test
+	fn SingleLeafRouter()
+	{
+		this.Reset()
+		assert router.Select() == RouteDispatch.Selected
+		assert router.Begin() == HttpPreparation.Prepared
+		assert router.GetAvailableLength() == 4
+		var value: byte = 0x00
+		assert router.TryRead(0, value) == PacketDataResult.Success
+		assert value == 0x48
+	}
+}

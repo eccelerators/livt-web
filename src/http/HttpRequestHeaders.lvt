@@ -1,0 +1,425 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * Internal header scanner with bounded offset/length metadata, no payload copy.
+ */
+component HttpRequestHeaders<S: IPacketData, MAX_BYTES: int, MAX_HEADERS: int>
+{
+	static assert MAX_HEADERS > 0, "Header count bound must be positive"
+
+	// Lowercase header-name literals used by the bounded classifier.
+	const HOST[4] = [0x68, 0x6F, 0x73, 0x74]
+	const LENGTH[14] = [0x63, 0x6F, 0x6E, 0x74, 0x65, 0x6E, 0x74, 0x2D, 0x6C, 0x65, 0x6E, 0x67, 0x74, 0x68]
+	const TRANSFER[17] = [0x74, 0x72, 0x61, 0x6E, 0x73, 0x66, 0x65, 0x72, 0x2D, 0x65, 0x6E, 0x63, 0x6F, 0x64, 0x69, 0x6E, 0x67]
+	const EXPECT[6] = [0x65, 0x78, 0x70, 0x65, 0x63, 0x74]
+
+	// Borrowed cursor positioned immediately after the request line.
+	cursor: HttpRequestCursor<S, MAX_BYTES>
+
+	// Owned bounded descriptors; offsets refer to borrowed source bytes.
+	nameOffsets: int[MAX_HEADERS]
+	nameLengths: int[MAX_HEADERS]
+	valueOffsets: int[MAX_HEADERS]
+	valueLengths: int[MAX_HEADERS]
+	kinds: HttpHeaderName[MAX_HEADERS]
+	count: int
+
+	// Framing and duplicate-field state for the current parse.
+	hostSeen: bool
+	lengthSeen: bool
+	transferSeen: bool
+	expectSeen: bool
+	bodyPresent: bool
+
+	/**
+	 * Borrows an exclusive cursor; Parse replaces the previous header descriptors.
+	 */
+	new(cursor: HttpRequestCursor<S, MAX_BYTES>)
+	{
+		this.cursor = cursor
+	}
+
+	/**
+	 * Resets header descriptors and consumes fields through the empty CRLF line.
+	 * Ready means valid syntax; IsSupported separately checks body/framing policy.
+	 */
+	public fn Parse() HttpRequestResult
+	{
+		count = 0
+		hostSeen = false
+		lengthSeen = false
+		transferSeen = false
+		expectSeen = false
+		bodyPresent = false
+		var value: byte = 0x00
+
+		while (true) {
+			if (!cursor.Next(value)) {
+				return cursor.GetResult()
+			}
+
+			if (value == 0x0D) {
+				if (!cursor.Next(value)) {
+					return cursor.GetResult()
+				}
+
+				if (value != 0x0A) {
+					return HttpRequestResult.Malformed
+				}
+
+				return HttpRequestResult.Ready
+			}
+
+			if (count >= MAX_HEADERS) {
+				return HttpRequestResult.TooLarge
+			}
+
+			var result = this.ParseField(value)
+
+			if (result != HttpRequestResult.Ready) {
+				return result
+			}
+
+			result = this.CheckField()
+
+			if (result != HttpRequestResult.Ready) {
+				return result
+			}
+
+			count = count + 1
+		}
+	}
+
+	/**
+	 * Consumes a field whose first byte is already read; records name and trimmed
+	 * value ranges in slot count without copying source bytes.
+	 */
+	fn ParseField(first: byte) HttpRequestResult
+	{
+		var value = first
+		var nameOffset = cursor.GetPosition() - 1
+		var nameLength = 0
+
+		while (value != 0x3A) {
+			if (!HttpRequestSyntax.IsToken(value)) {
+				return HttpRequestResult.Malformed
+			}
+
+			nameLength = nameLength + 1
+
+			if (!cursor.Next(value)) {
+				return cursor.GetResult()
+			}
+		}
+
+		if (nameLength == 0) {
+			return HttpRequestResult.Malformed
+		}
+
+		nameOffsets[count] = nameOffset
+		nameLengths[count] = nameLength
+		var start = cursor.GetPosition()
+		var end = start
+		var contentStarted = false
+
+		while (true) {
+			if (!cursor.Next(value)) {
+				return cursor.GetResult()
+			}
+
+			if (value == 0x0D) {
+				break
+			}
+
+			if ((value < 0x20 && value != 0x09) || value == 0x7F) {
+				return HttpRequestResult.Malformed
+			}
+
+			if (!HttpRequestSyntax.IsWhitespace(value)) {
+				if (!contentStarted) {
+					start = cursor.GetPosition() - 1
+				}
+
+				contentStarted = true
+				end = cursor.GetPosition()
+			}
+		}
+
+		if (!cursor.Next(value)) {
+			return cursor.GetResult()
+		}
+
+		if (value != 0x0A) {
+			return HttpRequestResult.Malformed
+		}
+
+		valueOffsets[count] = start
+		valueLengths[count] = end - start
+		return HttpRequestResult.Ready
+	}
+
+	/**
+	 * Compares the current field name case-insensitively against supported names.
+	 */
+	fn Classify() HttpHeaderName
+	{
+		var length = nameLengths[count]
+		var kind = HttpHeaderName.Other
+
+		if (length == 4) {
+			kind = HttpHeaderName.Host
+		}
+		elif (length == 14) {
+			kind = HttpHeaderName.ContentLength
+		}
+		elif (length == 17) {
+			kind = HttpHeaderName.TransferEncoding
+		}
+		elif (length == 6) {
+			kind = HttpHeaderName.Expect
+		}
+		else {
+			return kind
+		}
+
+		for (var i = 0; i < length; i++) {
+			var value: byte = 0x00
+
+			if (!cursor.ReadAt(nameOffsets[count] + i, value)) {
+				return HttpHeaderName.Other
+			}
+
+			// Separate table selection avoids duplicate generated states (compiler #542).
+			var expected = this.GetExpectedNameByte(kind, i)
+
+			var normalized = HttpRequestSyntax.Lower(value)
+
+			if (normalized != expected) {
+				return HttpHeaderName.Other
+			}
+		}
+
+		return kind
+	}
+
+	/**
+	 * Selects a fixed spelling; callers supply its validated kind and byte bound.
+	 */
+	fn GetExpectedNameByte(kind: HttpHeaderName, index: int) byte
+	{
+		if (kind == HttpHeaderName.Host) {
+			return HOST[index]
+		}
+
+		if (kind == HttpHeaderName.ContentLength) {
+			return LENGTH[index]
+		}
+
+		if (kind == HttpHeaderName.TransferEncoding) {
+			return TRANSFER[index]
+		}
+
+		return EXPECT[index]
+	}
+
+	/**
+	 * Checks duplicate/framing rules for the current field and records policy flags.
+	 */
+	fn CheckField() HttpRequestResult
+	{
+		var kind = this.Classify()
+
+		if (cursor.GetResult() != HttpRequestResult.Ready) {
+			return cursor.GetResult()
+		}
+
+		kinds[count] = kind
+
+		if (kind == HttpHeaderName.Host) {
+			if (hostSeen || valueLengths[count] == 0) {
+				return HttpRequestResult.Malformed
+			}
+
+			hostSeen = true
+			return this.CheckHost()
+		}
+
+		if (kind == HttpHeaderName.ContentLength) {
+			if (lengthSeen || valueLengths[count] == 0) {
+				return HttpRequestResult.Malformed
+			}
+
+			lengthSeen = true
+
+			for (var i = 0; i < valueLengths[count]; i++) {
+				var value: byte = 0x00
+
+				if (!cursor.ReadAt(valueOffsets[count] + i, value)) {
+					return cursor.GetResult()
+				}
+
+				if (!HttpRequestSyntax.IsDigit(value)) {
+					return HttpRequestResult.Malformed
+				}
+
+				if (value != 0x30) {
+					bodyPresent = true
+				}
+			}
+		}
+
+		if (kind == HttpHeaderName.TransferEncoding) {
+			if (transferSeen || valueLengths[count] == 0) {
+				return HttpRequestResult.Malformed
+			}
+
+			transferSeen = true
+		}
+
+		if (kind == HttpHeaderName.Expect) {
+			if (expectSeen || valueLengths[count] == 0) {
+				return HttpRequestResult.Malformed
+			}
+
+			expectSeen = true
+		}
+
+		if (lengthSeen && transferSeen) {
+			return HttpRequestResult.Malformed
+		}
+
+		return HttpRequestResult.Ready
+	}
+
+	/**
+	 * Validates the current nonempty Host value and its optional numeric port.
+	 */
+	fn CheckHost() HttpRequestResult
+	{
+		// Restricted host subset: DNS-style name or dotted IPv4, optional decimal port.
+		var port = false
+		var portDigits = 0
+		var portValue = 0
+		var labelLength = 0
+		var previous: byte = 0x00
+
+		for (var i = 0; i < valueLengths[count]; i++) {
+			var value: byte = 0x00
+
+			if (!cursor.ReadAt(valueOffsets[count] + i, value)) {
+				return cursor.GetResult()
+			}
+
+			if (port) {
+				if (!HttpRequestSyntax.IsDigit(value)) {
+					return HttpRequestResult.Malformed
+				}
+
+				if (portValue > 6553 || (portValue == 6553 && value > 0x35)) {
+					return HttpRequestResult.Malformed
+				}
+
+				portValue = portValue * 10 + ((value as int) - 0x30)
+				portDigits = portDigits + 1
+			}
+			elif (value == 0x3A) {
+				if (i == 0 || previous == 0x2D) {
+					return HttpRequestResult.Malformed
+				}
+
+				port = true
+			}
+			elif (value == 0x2E) {
+				if (labelLength == 0 || previous == 0x2D) {
+					return HttpRequestResult.Malformed
+				}
+
+				labelLength = 0
+			}
+			elif (HttpRequestSyntax.IsAlpha(value) || HttpRequestSyntax.IsDigit(value) || value == 0x2D) {
+				if (labelLength == 0 && value == 0x2D) {
+					return HttpRequestResult.Malformed
+				}
+
+				labelLength = labelLength + 1
+			}
+			else {
+				return HttpRequestResult.Unsupported
+			}
+
+			previous = value
+		}
+
+		if (previous == 0x2D || (port && portDigits == 0)) {
+			return HttpRequestResult.Malformed
+		}
+
+		return HttpRequestResult.Ready
+	}
+
+	/**
+	 * Reports whether the parsed headers require no body, transfer coding or Expect handling.
+	 */
+	public fn IsSupported() bool
+	{
+		return !bodyPresent && !transferSeen && !expectSeen
+	}
+
+	/**
+	 * Reports whether a valid Host field was found during the last parse.
+	 */
+	public fn HasHost() bool
+	{
+		return hostSeen
+	}
+
+	/**
+	 * Returns the number of completely parsed field descriptors.
+	 */
+	public fn GetCount() int
+	{
+		return count
+	}
+
+	/**
+	 * Returns the cached name classification. Requires 0 <= header < GetCount().
+	 */
+	public fn GetKind(header: int) HttpHeaderName
+	{
+		return kinds[header]
+	}
+
+	/**
+	 * Returns the absolute source-byte name offset. Requires a valid header index.
+	 */
+	public fn GetNameOffset(header: int) int
+	{
+		return nameOffsets[header]
+	}
+
+	/**
+	 * Returns the original field-name byte length. Requires a valid header index.
+	 */
+	public fn GetNameLength(header: int) int
+	{
+		return nameLengths[header]
+	}
+
+	/**
+	 * Returns the absolute trimmed-value start. Requires a valid header index.
+	 */
+	public fn GetValueOffset(header: int) int
+	{
+		return valueOffsets[header]
+	}
+
+	/**
+	 * Returns the trimmed field-value byte length. Requires a valid header index.
+	 */
+	public fn GetValueLength(header: int) int
+	{
+		return valueLengths[header]
+	}
+}

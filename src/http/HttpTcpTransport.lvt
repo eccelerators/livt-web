@@ -1,0 +1,351 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * Narrow single-peer, single-request demo transport over the existing Net parser.
+ * Owns one response graph/session descriptor; borrows the shared TCP request and
+ * HTTP application. No receive buffer or HTTP routing/parser logic lives here.
+ * Receive checksum/ACK/sequence validation and reliable TCP remain separate work.
+ */
+component HttpTcpTransport<S: IPacketData, A: IHttpApplication, MAX_RESPONSE_BYTES: int = 1460> : IPacketData
+{
+	static assert MAX_RESPONSE_BYTES > 0 && MAX_RESPONSE_BYTES <= 1460, "HTTP response must fit fixed-header Ethernet/IPv4/TCP"
+
+	// Borrowed request/application and owned response composition.
+	connection: TcpConnectionRecognizer<S>
+	application: A
+	response: HttpTcpFrame<A>
+
+	// Configured endpoint and one SYN-bound peer.
+	localMac: byte[6]
+	localIp: byte[4]
+	localPort: byte[2]
+	peerMac: byte[6]
+	peerIp: byte[4]
+	peerPort: byte[2]
+	acknowledgment: byte[4]
+
+	// Per-frame publication is separate from the narrow TCP handshake state.
+	phase: HttpTransportState
+	session: HttpTcpState
+	http: bool
+
+	/**
+	 * Borrows the shared TCP recognizer and HTTP application; owns response headers
+	 * and a closed single-peer session. Addresses and port are network-order bytes.
+	 */
+	new(connection: TcpConnectionRecognizer<S>, application: A,
+		localMac: byte[6], localIp: byte[4], localPort: byte[2])
+	{
+		this.connection = connection
+		this.application = application
+		this.localMac = localMac
+		this.localIp = localIp
+		this.localPort = localPort
+		response = new HttpTcpFrame<A>(application)
+	}
+
+	/**
+	 * Handles one stable published capture when Idle/NotReady; active calls return
+	 * the existing phase. The owner must not reparse or reuse receive storage while
+	 * a response is pending, prepared or retained.
+	 */
+	public fn HandleFrame() HttpTransportState
+	{
+		if (phase != HttpTransportState.Idle && phase != HttpTransportState.NotReady) {
+			return phase
+		}
+
+		var parsed = connection.TryParse()
+
+		if (parsed == PacketParseResult.NotReady) {
+			phase = HttpTransportState.NotReady
+			return phase
+		}
+
+		if (parsed != PacketParseResult.Success) {
+			phase = HttpTransportState.Ignored
+
+			if (parsed == PacketParseResult.HeaderOnly) {
+				phase = HttpTransportState.Failed
+			}
+
+			return phase
+		}
+
+		var port = NetworkOrder.Word(localPort[0], localPort[1])
+		var length = connection.GetDeclaredPayloadLength()
+
+		if (length != connection.GetAvailableLength()) {
+			return this.Fail()
+		}
+
+		if (connection.IsSynRequest(localIp, port) && length == 0) {
+			peerMac = connection.GetSourceMac()
+			peerIp = connection.GetSourceIpv4()
+			var remotePort = connection.GetSourcePort()
+			peerPort[0] = NetworkOrder.HighByte(remotePort)
+			peerPort[1] = NetworkOrder.LowByte(remotePort)
+			var remoteSequence = connection.GetSequenceNumber()
+			acknowledgment = HttpTcpSequence.Advance(remoteSequence, 1)
+			http = false
+			session = HttpTcpState.SynReceived
+			return this.PrepareFrame()
+		}
+
+		if (session == HttpTcpState.Closed || !this.IsPeer()) {
+			phase = HttpTransportState.Ignored
+			return phase
+		}
+
+		if (connection.IsAckOnlyPacket(localIp, port) && length == 0) {
+			session = HttpTcpState.Established
+			phase = HttpTransportState.Ignored
+			return phase
+		}
+
+		if (!connection.IsPshAckPacket(localIp, port) || length <= 0) {
+			phase = HttpTransportState.Ignored
+			return phase
+		}
+
+		// The published provider covers this entire TCP payload, not a capture prefix.
+		// HTTP parsing must still prove a complete bodyless request; no reassembly here.
+		var requestSequence = connection.GetSequenceNumber()
+		acknowledgment = HttpTcpSequence.Advance(requestSequence, length)
+		http = true
+		var begun = application.Begin(MAX_RESPONSE_BYTES, true)
+		return this.AcceptApplication(begun)
+	}
+
+	/**
+	 * Compares source MAC, IPv4 address and port with the SYN-bound peer.
+	 */
+	fn IsPeer() bool
+	{
+		var mac = connection.GetSourceMac()
+		var ip = connection.GetSourceIpv4()
+
+		for (var i: int = 0; i < 6; i++) {
+			if (mac[i] != peerMac[i]) {
+				return false
+			}
+		}
+
+		for (var i: int = 0; i < 4; i++) {
+			if (ip[i] != peerIp[i]) {
+				return false
+			}
+		}
+
+		return connection.GetSourcePort() == NetworkOrder.Word(peerPort[0], peerPort[1])
+	}
+
+	/**
+	 * Resumes only pending HTTP work; repeated calls do not start another request.
+	 */
+	public fn Poll() HttpTransportState
+	{
+		if (phase == HttpTransportState.Pending) {
+			var progress = application.Poll()
+			return this.AcceptApplication(progress)
+		}
+
+		return phase
+	}
+
+	/**
+	 * Keeps matching/preparation pending, composes a published HTTP response,
+	 * or aborts on any other application outcome.
+	 */
+	fn AcceptApplication(progress: HttpApplicationState) HttpTransportState
+	{
+		if (progress == HttpApplicationState.Matching || progress == HttpApplicationState.Preparing) {
+			phase = HttpTransportState.Pending
+			return phase
+		}
+
+		if (progress == HttpApplicationState.Published) {
+			session = HttpTcpState.Closed
+			return this.PrepareFrame()
+		}
+
+		return this.Fail()
+	}
+
+	/**
+	 * Prepares checksummed TCP/IPv4/Ethernet headers over the selected payload.
+	 * A provider failure aborts publication and closes the session.
+	 */
+	fn PrepareFrame() HttpTransportState
+	{
+		var result = response.TryPrepare(http, localMac, peerMac, localIp, peerIp,
+			localPort, peerPort, acknowledgment)
+
+		if (result != PacketDataResult.Success) {
+			return this.Fail()
+		}
+
+		phase = HttpTransportState.Prepared
+		return phase
+	}
+
+	/**
+	 * Invalidates response descendants, aborts HTTP work and records Failed.
+	 */
+	fn Fail() HttpTransportState
+	{
+		response.Invalidate()
+		application.Abort()
+		session = HttpTcpState.Closed
+		phase = HttpTransportState.Failed
+		return phase
+	}
+
+	/**
+	 * Returns the current lifecycle phase without progressing the transaction.
+	 */
+	public fn GetState() HttpTransportState
+	{
+		return phase
+	}
+
+	/**
+	 * Reports whether the current transport transaction selected HTTP payload bytes.
+	 */
+	public fn IsHttpResponse() bool
+	{
+		return http
+	}
+
+	/**
+	 * Records local emission and retains readable response bytes.
+	 * Returns false if publication is unavailable; success is not peer acknowledgement.
+	 */
+	public fn MarkEmitted() bool
+	{
+		if (!this.IsReady()) {
+			return false
+		}
+
+		if (http && !application.MarkEmitted()) {
+			this.Fail()
+			return false
+		}
+
+		phase = HttpTransportState.Retained
+		return true
+	}
+
+	/**
+	 * The caller stopped all frame readers; release packet parents before HTTP.
+	 */
+	public fn Complete() bool
+	{
+		if (phase != HttpTransportState.Retained) {
+			return false
+		}
+
+		response.Invalidate()
+
+		if (http && !application.Complete()) {
+			this.Fail()
+			return false
+		}
+
+		phase = HttpTransportState.Completed
+		return true
+	}
+
+	/**
+	 * Cancellation requires stopped consumers. Also resets the narrow session.
+	 */
+	public fn Abort()
+	{
+		response.Invalidate()
+		application.Abort()
+		session = HttpTcpState.Closed
+		phase = HttpTransportState.Aborted
+	}
+
+	/**
+	 * Invalidate descendants before the composition root releases/reuses RX.
+	 */
+	public fn TryRelease() PacketDataResult
+	{
+		if (phase == HttpTransportState.Pending || phase == HttpTransportState.Prepared || phase == HttpTransportState.Retained) {
+			return PacketDataResult.Busy
+		}
+
+		response.Invalidate()
+
+		if (!application.Release()) {
+			return PacketDataResult.Busy
+		}
+
+		connection.Invalidate()
+		phase = HttpTransportState.Idle
+		http = false
+		return PacketDataResult.Success
+	}
+
+	/**
+	 * Reports current publication availability, not a reservation.
+	 * Keep the borrowed providers stable until all consumers finish.
+	 */
+	override fn IsReady() bool
+	{
+		if (phase != HttpTransportState.Prepared && phase != HttpTransportState.Retained) {
+			return false
+		}
+
+		if (!response.IsReady()) {
+			this.Fail()
+			return false
+		}
+
+		return true
+	}
+
+	/**
+	 * Returns the currently advertised byte extent, or zero without publication.
+	 * The extent is a snapshot; it does not reserve the backing storage.
+	 */
+	override fn GetAvailableLength() int
+	{
+		if (!this.IsReady()) {
+			return 0
+		}
+
+		return response.GetAvailableLength()
+	}
+
+	/**
+	 * Reads a zero-based byte within the published extent. Check PacketDataResult
+	 * before using value; keep all borrowed providers stable throughout the read.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (!this.IsReady()) {
+			return PacketDataResult.NotReady
+		}
+
+		if (index < 0 || index >= response.GetAvailableLength()) {
+			return PacketDataResult.Invalid
+		}
+
+		var actual: byte = 0x00
+		var result = response.TryRead(index, actual)
+
+		if (result != PacketDataResult.Success) {
+			this.Fail()
+			return result
+		}
+
+		value = actual
+		return PacketDataResult.Success
+	}
+}

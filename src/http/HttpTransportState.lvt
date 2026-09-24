@@ -1,0 +1,16 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+enum HttpTransportState
+{
+	Idle
+	NotReady
+	Pending
+	Prepared
+	Retained
+	Completed
+	Ignored
+	Failed
+	Aborted
+}

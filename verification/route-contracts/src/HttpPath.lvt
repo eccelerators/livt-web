@@ -1,0 +1,47 @@
+namespace Livt.Web.Prototype
+using Livt.Net
+
+/** Borrows request and immutable path provider. No owned path copy. */
+component HttpPath<R: IHttpRequest, P: IPacketData> : IHttpRouteMatcher
+{
+	request: R
+	path: P
+
+	new(request: R, path: P)
+	{
+		this.request = request
+		this.path = path
+	}
+
+	override fn TryMatch() HttpMatchResult
+	{
+		if (!request.IsReady() || !path.IsReady()) {
+			return HttpMatchResult.NotReady
+		}
+
+		var length = path.GetAvailableLength()
+
+		if (length != request.GetPathLength()) {
+			return HttpMatchResult.NoMatch
+		}
+
+		for (var i = 0; i < length; i++) {
+			var actual: byte = 0x00
+			var expected: byte = 0x00
+
+			if (request.TryReadPath(i, actual) != PacketDataResult.Success) {
+				return HttpMatchResult.Failed
+			}
+
+			if (path.TryRead(i, expected) != PacketDataResult.Success) {
+				return HttpMatchResult.Failed
+			}
+
+			if (actual != expected) {
+				return HttpMatchResult.NoMatch
+			}
+		}
+
+		return HttpMatchResult.Match
+	}
+}

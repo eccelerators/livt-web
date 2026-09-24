@@ -1,0 +1,185 @@
+namespace Livt.Web.Prototype
+using Livt.Net
+
+@Test
+component RouteContractsTest
+{
+	source: ArrayPacketData<16>
+	path: RootPath
+	body: ArrayPacketData<2>
+	request: RequestFixture<ArrayPacketData<16>>
+	matcher: HttpPath<RequestFixture<ArrayPacketData<16>>, RootPath>
+	staticHandler: StaticContent<ArrayPacketData<2>>
+	deferred: DeferredContent
+	first: Route<RequestFixture<ArrayPacketData<16>>, HttpPath<RequestFixture<ArrayPacketData<16>>, RootPath>, StaticContent<ArrayPacketData<2>>>
+	second: Route<RequestFixture<ArrayPacketData<16>>, HttpPath<RequestFixture<ArrayPacketData<16>>, RootPath>, DeferredContent>
+	chain: RouteChain<Route<RequestFixture<ArrayPacketData<16>>, HttpPath<RequestFixture<ArrayPacketData<16>>, RootPath>, StaticContent<ArrayPacketData<2>>>, Route<RequestFixture<ArrayPacketData<16>>, HttpPath<RequestFixture<ArrayPacketData<16>>, RootPath>, DeferredContent>>
+
+	duplicate: Route<RequestFixture<ArrayPacketData<16>>, HttpPath<RequestFixture<ArrayPacketData<16>>, RootPath>, DeferredContent>
+	priorityChain: RouteChain<Route<RequestFixture<ArrayPacketData<16>>, HttpPath<RequestFixture<ArrayPacketData<16>>, RootPath>, StaticContent<ArrayPacketData<2>>>, Route<RequestFixture<ArrayPacketData<16>>, HttpPath<RequestFixture<ArrayPacketData<16>>, RootPath>, DeferredContent>>
+
+	new()
+	{
+		source = new ArrayPacketData<16>()
+		path = new RootPath()
+		body = new ArrayPacketData<2>()
+		request = new RequestFixture<ArrayPacketData<16>>(source)
+		matcher = new HttpPath<RequestFixture<ArrayPacketData<16>>, RootPath>(request, path)
+		staticHandler = new StaticContent<ArrayPacketData<2>>(body, HttpContentType.PlainText)
+		deferred = new DeferredContent()
+		first = new Route<RequestFixture<ArrayPacketData<16>>, HttpPath<RequestFixture<ArrayPacketData<16>>, RootPath>, StaticContent<ArrayPacketData<2>>>(HttpMethod.Get, request, matcher, staticHandler)
+		second = new Route<RequestFixture<ArrayPacketData<16>>, HttpPath<RequestFixture<ArrayPacketData<16>>, RootPath>, DeferredContent>(HttpMethod.Head, request, matcher, deferred)
+		chain = new RouteChain<Route<RequestFixture<ArrayPacketData<16>>, HttpPath<RequestFixture<ArrayPacketData<16>>, RootPath>, StaticContent<ArrayPacketData<2>>>, Route<RequestFixture<ArrayPacketData<16>>, HttpPath<RequestFixture<ArrayPacketData<16>>, RootPath>, DeferredContent>>(first, second)
+		duplicate = new Route<RequestFixture<ArrayPacketData<16>>, HttpPath<RequestFixture<ArrayPacketData<16>>, RootPath>, DeferredContent>(HttpMethod.Get, request, matcher, deferred)
+		priorityChain = new RouteChain<Route<RequestFixture<ArrayPacketData<16>>, HttpPath<RequestFixture<ArrayPacketData<16>>, RootPath>, StaticContent<ArrayPacketData<2>>>, Route<RequestFixture<ArrayPacketData<16>>, HttpPath<RequestFixture<ArrayPacketData<16>>, RootPath>, DeferredContent>>(first, duplicate)
+	}
+
+	fn Prepare(method: HttpMethod)
+	{
+		chain.End()
+		priorityChain.End()
+		deferred.ResetCount()
+		request.Invalidate()
+
+		if (source.IsReady()) {
+			assert source.TryRelease() == PacketDataResult.Success
+		}
+
+		if (body.IsReady()) {
+			assert body.TryRelease() == PacketDataResult.Success
+		}
+
+		assert source.TryWrite(0, 0x2F) == PacketDataResult.Success
+		assert source.TryPublish() == PacketDataResult.Success
+		assert body.TryWrite(0, 0x4F) == PacketDataResult.Success
+		assert body.TryWrite(1, 0x4B) == PacketDataResult.Success
+		assert body.TryPublish() == PacketDataResult.Success
+		request.Publish(method, 1)
+	}
+
+	@Test
+	fn StaticBodyAndRelease()
+	{
+		this.Prepare(HttpMethod.Get)
+		assert chain.Select() == RouteDispatch.Selected
+		assert chain.Begin() == HttpPreparation.Prepared
+		assert chain.GetContentType() == HttpContentType.PlainText
+		assert chain.GetStatus() == HttpStatus.Ok
+		assert chain.GetAvailableLength() == 2
+		var value: byte = 0x00
+		assert chain.TryRead(0, value) == PacketDataResult.Success
+		assert value == 0x4F
+		assert chain.TryRead(1, value) == PacketDataResult.Success
+		assert value == 0x4B
+		assert chain.TryRead(2, value) == PacketDataResult.Invalid
+		assert body.TryWrite(0, 0x58) == PacketDataResult.Busy
+		chain.End()
+		assert !chain.IsReady()
+		assert chain.TryRead(0, value) == PacketDataResult.NotReady
+		assert body.IsReady()
+	}
+
+	@Test
+	fn PendingHandlerResumesWithoutRestart()
+	{
+		this.Prepare(HttpMethod.Head)
+		assert chain.Select() == RouteDispatch.Selected
+		assert chain.Begin() == HttpPreparation.Pending
+		assert !chain.IsReady()
+		var value: byte = 0x00
+		assert chain.TryRead(0, value) == PacketDataResult.NotReady
+		assert chain.Select() == RouteDispatch.Selected
+		assert chain.Poll() == HttpPreparation.Prepared
+		assert deferred.GetStarts() == 1
+		assert chain.Poll() == HttpPreparation.Prepared
+		assert deferred.GetStarts() == 1
+		assert chain.GetContentType() == HttpContentType.Json
+		assert chain.TryRead(1, value) == PacketDataResult.Success
+		assert value == 0x7D
+		chain.End()
+		assert !chain.IsReady()
+	}
+
+	@Test
+	fn CancelPendingAndReuse()
+	{
+		this.Prepare(HttpMethod.Head)
+		assert chain.Select() == RouteDispatch.Selected
+		assert chain.Begin() == HttpPreparation.Pending
+		chain.End()
+		chain.End()
+		assert chain.Poll() == HttpPreparation.Idle
+		request.Publish(HttpMethod.Get, 1)
+		assert chain.Select() == RouteDispatch.Selected
+		assert chain.Begin() == HttpPreparation.Prepared
+		assert deferred.GetStarts() == 1
+	}
+
+	@Test
+	fn MissingMethodAndPathDoNotStartHandlers()
+	{
+		this.Prepare(HttpMethod.Other)
+		assert chain.Select() == RouteDispatch.MethodNotAllowed
+		assert deferred.GetStarts() == 0
+		request.Publish(HttpMethod.Get, 2)
+		assert chain.Select() == RouteDispatch.NotFound
+		request.Invalidate()
+		assert chain.Select() == RouteDispatch.NotReady
+	}
+
+	@Test
+	fn ReadFailureDoesNotFallThrough()
+	{
+		this.Prepare(HttpMethod.Get)
+		request.FailReads()
+		assert chain.Select() == RouteDispatch.Failed
+		assert chain.Begin() == HttpPreparation.Idle
+		assert deferred.GetStarts() == 0
+	}
+
+	@Test
+	fn BodyFailurePublishesNothing()
+	{
+		this.Prepare(HttpMethod.Get)
+		assert body.TryRelease() == PacketDataResult.Success
+		assert chain.Select() == RouteDispatch.Selected
+		assert chain.Begin() == HttpPreparation.Failed
+		assert !chain.IsReady()
+		assert chain.GetAvailableLength() == 0
+		chain.End()
+	}
+
+	@Test
+	fn FirstMatchingMethodWins()
+	{
+		this.Prepare(HttpMethod.Get)
+		assert priorityChain.Select() == RouteDispatch.Selected
+		assert priorityChain.Begin() == HttpPreparation.Prepared
+		assert deferred.GetStarts() == 0
+		priorityChain.End()
+	}
+
+	@Test
+	fn QueryViewAndExactPathBytes()
+	{
+		this.Prepare(HttpMethod.Get)
+		request.Invalidate()
+		assert source.TryRelease() == PacketDataResult.Success
+		assert source.TryWrite(0, 0x2F) == PacketDataResult.Success
+		assert source.TryWrite(1, 0x3F) == PacketDataResult.Success
+		assert source.TryWrite(2, 0x78) == PacketDataResult.Success
+		assert source.TryPublish() == PacketDataResult.Success
+		// A parser would expose only '/' as path; this fixture injects that boundary.
+		request.Publish(HttpMethod.Get, 1)
+		assert matcher.TryMatch() == HttpMatchResult.Match
+		// Including additional bytes cannot match the shorter path.
+		request.Publish(HttpMethod.Get, 3)
+		assert matcher.TryMatch() == HttpMatchResult.NoMatch
+		request.Invalidate()
+		assert source.TryRelease() == PacketDataResult.Success
+		assert source.TryWrite(0, 0x58) == PacketDataResult.Success
+		assert source.TryPublish() == PacketDataResult.Success
+		request.Publish(HttpMethod.Get, 1)
+		assert matcher.TryMatch() == HttpMatchResult.NoMatch
+	}
+}

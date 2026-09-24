@@ -1,0 +1,81 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * Internal selector lets SYN and HTTP share one Net response graph.
+ */
+component HttpTransportPayload<A: IHttpApplication> : IPacketData
+{
+	// Borrowed HTTP message and publication descriptor; no byte storage.
+	application: A
+	ready: bool
+	http: bool
+
+	/**
+	 * Borrows HTTP bytes without copying them; starts unpublished.
+	 */
+	new(application: A)
+	{
+		this.application = application
+	}
+
+	/**
+	 * Selects complete HTTP bytes when true, or an empty SYN payload when false.
+	 * Call only after consumers of the previous selection have stopped.
+	 */
+	public fn Select(http: bool)
+	{
+		this.http = http
+		ready = true
+	}
+
+	/**
+	 * Closes the selector without completing or releasing the borrowed application.
+	 */
+	public fn Invalidate()
+	{
+		ready = false
+	}
+
+	/**
+	 * Reports current publication availability, not a reservation.
+	 * Keep the borrowed providers stable until all consumers finish.
+	 */
+	override fn IsReady() bool
+	{
+		return ready && (!http || application.IsReady())
+	}
+
+	/**
+	 * Returns the currently advertised byte extent, or zero without publication.
+	 * The extent is a snapshot; it does not reserve the backing storage.
+	 */
+	override fn GetAvailableLength() int
+	{
+		if (!this.IsReady() || !http) {
+			return 0
+		}
+
+		return application.GetAvailableLength()
+	}
+
+	/**
+	 * Reads a zero-based byte within the published extent. Check PacketDataResult
+	 * before using value; keep all borrowed providers stable throughout the read.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (!this.IsReady()) {
+			return PacketDataResult.NotReady
+		}
+
+		if (!http) {
+			return PacketDataResult.Invalid
+		}
+
+		return application.TryRead(index, value)
+	}
+}

@@ -1,0 +1,225 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * One selected handler or shared 404/405 fallback, exposed as a response body.
+ * Owns fallback/transaction state; borrows routes. No transport, parser or encoder.
+ * End only after downstream readers stop. Failed handlers never trigger fallback.
+ */
+component HttpRouter<T: IHttpRoute> : IHttpHandler
+{
+	// Borrowed route tree and owned fallback view.
+	routes: T
+	fallback: HttpRouteFallback
+
+	// Dispatch and preparation are separate: selection never starts a handler.
+	dispatch: RouteDispatch
+	preparation: HttpPreparation
+
+	/**
+	 * Borrows the route tree and owns one shared fallback response.
+	 * Starts Idle; the tree and router must have one serialized lifecycle owner.
+	 */
+	new(routes: T)
+	{
+		this.routes = routes
+		fallback = new HttpRouteFallback()
+	}
+
+	/**
+	 * Selects over the shared published request without beginning a handler.
+	 * NotReady may retry; other outcomes remain frozen until End.
+	 */
+	public fn Select() RouteDispatch
+	{
+		if (dispatch == RouteDispatch.Idle || dispatch == RouteDispatch.NotReady) {
+			dispatch = routes.Select()
+		}
+
+		return dispatch
+	}
+
+	/**
+	 * Starts preparation once for the accepted selection; repeated calls must not
+	 * repeat accepted application actions. Pending work resumes through Poll.
+	 */
+	override fn Begin() HttpPreparation
+	{
+		if (preparation != HttpPreparation.Idle) {
+			return preparation
+		}
+
+		if (dispatch == RouteDispatch.Selected) {
+			preparation = routes.Begin()
+		}
+		elif (dispatch == RouteDispatch.NotFound || dispatch == RouteDispatch.MethodNotAllowed) {
+			var allowed = routes.GetMatchedMethods()
+
+			if (fallback.TryPrepare(dispatch, allowed)) {
+				preparation = HttpPreparation.Prepared
+			}
+			else {
+				preparation = HttpPreparation.Failed
+			}
+		}
+		elif (dispatch == RouteDispatch.Failed) {
+			preparation = HttpPreparation.Failed
+		}
+
+		return preparation
+	}
+
+	/**
+	 * Resumes pending preparation without restarting accepted actions.
+	 * Prepared or Failed remains terminal until End.
+	 */
+	override fn Poll() HttpPreparation
+	{
+		if (dispatch == RouteDispatch.Selected && preparation == HttpPreparation.Pending) {
+			preparation = routes.Poll()
+		}
+
+		if (preparation == HttpPreparation.Prepared && !this.IsReady()) {
+			preparation = HttpPreparation.Failed
+		}
+
+		return preparation
+	}
+
+	/**
+	 * Invalidates fallback bytes before ending the route tree and clearing state.
+	 * The owner must invalidate response encoders before calling End.
+	 */
+	override fn End()
+	{
+		fallback.Invalidate()
+		routes.End()
+		dispatch = RouteDispatch.Idle
+		preparation = HttpPreparation.Idle
+	}
+
+	/**
+	 * Reports current publication availability, not a reservation.
+	 * Keep the borrowed providers stable until all consumers finish.
+	 */
+	override fn IsReady() bool
+	{
+		if (preparation != HttpPreparation.Prepared) {
+			return false
+		}
+
+		var published = fallback.IsReady()
+
+		if (dispatch == RouteDispatch.Selected) {
+			published = routes.IsReady()
+		}
+
+		if (!published) {
+			preparation = HttpPreparation.Failed
+		}
+
+		return published
+	}
+
+	/**
+	 * Returns the selected response status; use only while IsReady is true.
+	 */
+	override fn GetStatus() HttpStatus
+	{
+		if (!this.IsReady()) {
+			return HttpStatus.Unknown
+		}
+
+		if (dispatch == RouteDispatch.Selected) {
+			return routes.GetStatus()
+		}
+
+		return fallback.GetStatus()
+	}
+
+	/**
+	 * Returns the selected body media type; use only while IsReady is true.
+	 */
+	override fn GetContentType() HttpContentType
+	{
+		if (!this.IsReady()) {
+			return HttpContentType.Unknown
+		}
+
+		if (dispatch == RouteDispatch.Selected) {
+			return routes.GetContentType()
+		}
+
+		return fallback.GetContentType()
+	}
+
+	/**
+	 * Returns the selected response Allow set, not the routing tree's match set.
+	 * Use only while IsReady is true; None omits the Allow header.
+	 */
+	override fn GetAllowedMethods() HttpAllowedMethods
+	{
+		if (!this.IsReady()) {
+			return HttpAllowedMethods.None
+		}
+
+		if (dispatch == RouteDispatch.Selected) {
+			return routes.GetAllowedMethods()
+		}
+
+		return fallback.GetAllowedMethods()
+	}
+
+	/**
+	 * Returns the currently advertised byte extent, or zero without publication.
+	 * The extent is a snapshot; it does not reserve the backing storage.
+	 */
+	override fn GetAvailableLength() int
+	{
+		if (!this.IsReady()) {
+			return 0
+		}
+
+		if (dispatch == RouteDispatch.Selected) {
+			return routes.GetAvailableLength()
+		}
+
+		return fallback.GetAvailableLength()
+	}
+
+	/**
+	 * Reads a zero-based byte within the published extent. Check PacketDataResult
+	 * before using value; keep all borrowed providers stable throughout the read.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (!this.IsReady()) {
+			return PacketDataResult.NotReady
+		}
+
+		if (index < 0 || index >= this.GetAvailableLength()) {
+			return PacketDataResult.Invalid
+		}
+
+		var actual: byte = 0x00
+		var result: PacketDataResult = PacketDataResult.NotReady
+
+		if (dispatch == RouteDispatch.Selected) {
+			result = routes.TryRead(index, actual)
+		}
+		else {
+			result = fallback.TryRead(index, actual)
+		}
+
+		if (result != PacketDataResult.Success) {
+			preparation = HttpPreparation.Failed
+			return result
+		}
+
+		value = actual
+		return PacketDataResult.Success
+	}
+}

@@ -7,15 +7,15 @@ outdir = "out"
 [tests]
 path = "tests"
 components = [
-	"HttpGetRootRecognizerTest",
-	"HttpGetRecognizerTest",
-	"HttpRequestRecognizerTest",
-	"HttpResponseGeneratorTest",
-	"HttpResponseFrameComposerTest",
-	"HttpResponseFailureTest",
-	"HttpServerTest",
-	"NetworkEndpointTest",
-	"WebServerTest"
+	"HttpNetworkEndpointTest",
+	"HttpTcpSequenceTest",
+	"HttpApplicationTest",
+	"HttpRoutingTest",
+	"HttpPathTest",
+	"HttpHandlerTest",
+	"HttpResponseEncoderTest",
+	"HttpRequestParserTest",
+	"HttpRequestBoundsTest",
 ]
 
 [dependencies]

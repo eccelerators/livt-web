@@ -1,0 +1,12 @@
+namespace Livt.Web.Prototype
+using Livt.Net
+
+/** Begin once; Poll resumes; End cancels/completes after all readers stop. */
+interface IHttpHandler : IHttpResponse
+{
+	fn Begin() HttpPreparation
+
+	fn Poll() HttpPreparation
+
+	fn End()
+}

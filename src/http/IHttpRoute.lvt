@@ -1,0 +1,23 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * A selectable leaf or subtree. Select freezes its outcome until End, except
+ * NotReady may be retried over the same request. No handler begins in Select.
+ * GetMatchedMethods reports the union for path matches when selection yields 405.
+ */
+interface IHttpRoute : IHttpHandler
+{
+	/**
+	 * Selects over the shared published request without beginning a handler.
+	 * NotReady may retry; other outcomes remain frozen until End.
+	 */
+	fn Select() RouteDispatch
+
+	/**
+	 * Returns the supported-method union for matching paths.
+	 * This describes route selection, not a prepared response or a wildcard method.
+	 */
+	fn GetMatchedMethods() HttpAllowedMethods
+}

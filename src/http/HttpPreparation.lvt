@@ -1,0 +1,11 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+enum HttpPreparation
+{
+	Idle
+	Pending
+	Prepared
+	Failed
+}

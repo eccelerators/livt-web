@@ -1,0 +1,89 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * Read-only published request. Borrow the source until all readers finish and
+ * the owner invalidates the parser. All reads are checked; no raw byte arrays.
+ */
+interface IHttpRequest
+{
+	/**
+	 * Reports whether one complete supported request is published over readable storage.
+	 * Keep its source stable until all consumers finish and the owner invalidates it.
+	 */
+	fn IsReady() bool
+
+	/**
+	 * Returns the published method classification, or Other when unavailable.
+	 */
+	fn GetMethod() HttpMethod
+
+	/**
+	 * Returns the published HTTP version, or Unknown when unavailable.
+	 */
+	fn GetVersion() HttpVersion
+
+	/**
+	 * Returns the encoded path byte length excluding the query; zero when unavailable.
+	 */
+	fn GetPathLength() int
+
+	/**
+	 * Reads a zero-based byte of the published encoded path.
+	 * Unavailable publication returns NotReady; invalid indices return Invalid.
+	 * Provider failures propagate; use value only on Success and keep storage stable.
+	 */
+	fn TryReadPath(index: int, value: out byte) PacketDataResult
+
+	/**
+	 * Reports a published query separator; an explicitly empty query still returns true.
+	 */
+	fn HasQuery() bool
+
+	/**
+	 * Returns the encoded query byte length excluding the separator; zero when unavailable.
+	 */
+	fn GetQueryLength() int
+
+	/**
+	 * Reads a zero-based byte of the published encoded query.
+	 * Unavailable publication returns NotReady; invalid indices return Invalid.
+	 * Provider failures propagate; use value only on Success and keep storage stable.
+	 */
+	fn TryReadQuery(index: int, value: out byte) PacketDataResult
+
+	/**
+	 * Returns the published header count, or zero when unavailable.
+	 */
+	fn GetHeaderCount() int
+
+	/**
+	 * Returns the cached header classification; invalid/unavailable indices return Other.
+	 */
+	fn GetHeaderKind(header: int) HttpHeaderName
+
+	/**
+	 * Returns the original name byte length; invalid/unavailable indices return zero.
+	 */
+	fn GetHeaderNameLength(header: int) int
+
+	/**
+	 * Returns the trimmed value byte length; invalid/unavailable indices return zero.
+	 */
+	fn GetHeaderValueLength(header: int) int
+
+	/**
+	 * Reads a zero-based byte of the published header name.
+	 * Unavailable publication returns NotReady; invalid indices return Invalid.
+	 * Provider failures propagate; use value only on Success and keep storage stable.
+	 */
+	fn TryReadHeaderName(header: int, index: int, value: out byte) PacketDataResult
+
+	/**
+	 * Reads a zero-based byte of the published trimmed header value.
+	 * Unavailable publication returns NotReady; invalid indices return Invalid.
+	 * Provider failures propagate; use value only on Success and keep storage stable.
+	 */
+	fn TryReadHeaderValue(header: int, index: int, value: out byte) PacketDataResult
+}

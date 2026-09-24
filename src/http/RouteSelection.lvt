@@ -1,0 +1,10 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+enum RouteSelection
+{
+	None
+	First
+	Second
+}

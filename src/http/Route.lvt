@@ -1,0 +1,220 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * Leaf binding one request/matcher and an exclusively owned handler lifecycle.
+ */
+component Route<R: IHttpRequest, M: IHttpRouteMatcher, H: IHttpHandler> : IHttpRoute
+{
+	// Borrowed dependencies; matcher must use this same request.
+	request: R
+	matcher: M
+	handler: H
+	method: HttpMethod
+
+	// Frozen selection and whether handler cleanup is required.
+	dispatch: RouteDispatch
+	started: bool
+	preparation: HttpPreparation
+
+	/**
+	 * Borrows one method/matcher/request binding and an exclusive handler lifecycle.
+	 * The matcher must use this request; construction does not start the handler.
+	 */
+	new(method: HttpMethod, request: R, matcher: M, handler: H)
+	{
+		this.method = method
+		this.request = request
+		this.matcher = matcher
+		this.handler = handler
+	}
+
+	/**
+	 * Selects over the shared published request without beginning a handler.
+	 * NotReady may retry; other outcomes remain frozen until End.
+	 */
+	override fn Select() RouteDispatch
+	{
+		if (dispatch != RouteDispatch.Idle && dispatch != RouteDispatch.NotReady) {
+			return dispatch
+		}
+
+		if (HttpRouteMethods.FromMethod(method) == HttpAllowedMethods.None) {
+			dispatch = RouteDispatch.Failed
+			return dispatch
+		}
+
+		if (!request.IsReady()) {
+			dispatch = RouteDispatch.NotReady
+			return dispatch
+		}
+
+		var result = matcher.TryMatch()
+		dispatch = RouteDispatch.Failed
+
+		if (result == HttpMatchResult.NotReady) {
+			dispatch = RouteDispatch.NotReady
+		}
+		elif (result == HttpMatchResult.NoMatch) {
+			dispatch = RouteDispatch.NotFound
+		}
+		elif (result == HttpMatchResult.Match) {
+			dispatch = RouteDispatch.MethodNotAllowed
+
+			if (request.GetMethod() == method) {
+				dispatch = RouteDispatch.Selected
+			}
+		}
+
+		return dispatch
+	}
+
+	/**
+	 * Returns the supported-method union for matching paths.
+	 * This describes route selection, not a prepared response or a wildcard method.
+	 */
+	override fn GetMatchedMethods() HttpAllowedMethods
+	{
+		if (dispatch == RouteDispatch.Selected || dispatch == RouteDispatch.MethodNotAllowed) {
+			return HttpRouteMethods.FromMethod(method)
+		}
+
+		return HttpAllowedMethods.None
+	}
+
+	/**
+	 * Starts preparation once for the accepted selection; repeated calls must not
+	 * repeat accepted application actions. Pending work resumes through Poll.
+	 */
+	override fn Begin() HttpPreparation
+	{
+		if (dispatch != RouteDispatch.Selected) {
+			return HttpPreparation.Idle
+		}
+
+		if (started) {
+			return preparation
+		}
+
+		started = true
+		var result = handler.Begin()
+		preparation = result
+		return result
+	}
+
+	/**
+	 * Resumes pending preparation without restarting accepted actions.
+	 * Prepared or Failed remains terminal until End.
+	 */
+	override fn Poll() HttpPreparation
+	{
+		if (!started) {
+			return HttpPreparation.Idle
+		}
+
+		if (preparation == HttpPreparation.Pending) {
+			var result = handler.Poll()
+			preparation = result
+		}
+
+		if (preparation == HttpPreparation.Prepared && !handler.IsReady()) {
+			preparation = HttpPreparation.Failed
+		}
+
+		return preparation
+	}
+
+	/**
+	 * Ends only a started handler, then resets selection and preparation.
+	 * Requires stopped response consumers; the request owner retains its storage.
+	 */
+	override fn End()
+	{
+		if (started) {
+			handler.End()
+		}
+
+		started = false
+		preparation = HttpPreparation.Idle
+		dispatch = RouteDispatch.Idle
+	}
+
+	/**
+	 * Reports current publication availability, not a reservation.
+	 * Keep the borrowed providers stable until all consumers finish.
+	 */
+	override fn IsReady() bool
+	{
+		if (!started) {
+			return false
+		}
+
+		return handler.IsReady()
+	}
+
+	/**
+	 * Returns the selected response status; use only while IsReady is true.
+	 */
+	override fn GetStatus() HttpStatus
+	{
+		if (!started) {
+			return HttpStatus.Unknown
+		}
+
+		return handler.GetStatus()
+	}
+
+	/**
+	 * Returns the selected body media type; use only while IsReady is true.
+	 */
+	override fn GetContentType() HttpContentType
+	{
+		if (!started) {
+			return HttpContentType.Unknown
+		}
+
+		return handler.GetContentType()
+	}
+
+	/**
+	 * Returns the selected response Allow set, not the routing tree's match set.
+	 * Use only while IsReady is true; None omits the Allow header.
+	 */
+	override fn GetAllowedMethods() HttpAllowedMethods
+	{
+		if (!started) {
+			return HttpAllowedMethods.None
+		}
+
+		return handler.GetAllowedMethods()
+	}
+
+	/**
+	 * Returns the currently advertised byte extent, or zero without publication.
+	 * The extent is a snapshot; it does not reserve the backing storage.
+	 */
+	override fn GetAvailableLength() int
+	{
+		if (!started) {
+			return 0
+		}
+
+		return handler.GetAvailableLength()
+	}
+
+	/**
+	 * Reads a zero-based byte within the published extent. Check PacketDataResult
+	 * before using value; keep all borrowed providers stable throughout the read.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (!started) {
+			return PacketDataResult.NotReady
+		}
+
+		return handler.TryRead(index, value)
+	}
+}

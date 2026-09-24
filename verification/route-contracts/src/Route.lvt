@@ -1,0 +1,69 @@
+namespace Livt.Web.Prototype
+using Livt.Net
+
+/** Borrows the common request, matcher and exclusive handler. */
+component Route<R: IHttpRequest, M: IHttpRouteMatcher, H: IHttpHandler> : IHttpRoute
+{
+	request: R
+	matcher: M
+	handler: H
+	method: HttpMethod
+
+	new(method: HttpMethod, request: R, matcher: M, handler: H)
+	{
+		this.method = method
+		this.request = request
+		this.matcher = matcher
+		this.handler = handler
+	}
+
+	override fn TryMatchPath() HttpMatchResult
+	{
+		return matcher.TryMatch()
+	}
+
+	override fn AllowsMethod() bool
+	{
+		return request.IsReady() && request.GetMethod() == method
+	}
+
+	override fn End()
+	{
+		handler.End()
+	}
+
+	override fn Begin() HttpPreparation
+	{
+		return handler.Begin()
+	}
+
+	override fn Poll() HttpPreparation
+	{
+		return handler.Poll()
+	}
+
+	override fn IsReady() bool
+	{
+		return handler.IsReady()
+	}
+
+	override fn GetStatus() HttpStatus
+	{
+		return handler.GetStatus()
+	}
+
+	override fn GetContentType() HttpContentType
+	{
+		return handler.GetContentType()
+	}
+
+	override fn GetAvailableLength() int
+	{
+		return handler.GetAvailableLength()
+	}
+
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		return handler.TryRead(index, value)
+	}
+}

@@ -1,0 +1,173 @@
+namespace Livt.Web.Tests.Http
+
+using Livt.Net
+using Livt.Web.Http
+
+/**
+ * Executable dynamic-handler example: snapshots a digit and emits JSON [n].
+ * Begin performs the application read exactly once; two Poll calls finish work.
+ * Owns only a byte snapshot and lifecycle/counter state, never a packet buffer.
+ */
+component CounterContent : IHttpHandler
+{
+	counter: RoutingCounter
+	preparation: HttpPreparation
+	snapshot: byte
+	polls: int
+	starts: int
+	ends: int
+
+	// Test instrumentation for an emission failure after successful preparation.
+	failRead: bool
+	failPreparation: bool
+
+	new(counter: RoutingCounter)
+	{
+		this.counter = counter
+	}
+
+	public fn ResetCounts()
+	{
+		starts = 0
+		ends = 0
+		failRead = false
+		failPreparation = false
+	}
+
+	public fn GetStarts() int
+	{
+		return starts
+	}
+
+	public fn GetEnds() int
+	{
+		return ends
+	}
+
+	public fn FailRead()
+	{
+		failRead = true
+	}
+
+	public fn FailPreparation()
+	{
+		failPreparation = true
+	}
+
+	override fn Begin() HttpPreparation
+	{
+		if (preparation != HttpPreparation.Idle) {
+			return preparation
+		}
+
+		starts = starts + 1
+		var current = counter.Get()
+
+		if (current < 0 || current > 9) {
+			preparation = HttpPreparation.Failed
+			return preparation
+		}
+
+		snapshot = (current + 48) as byte
+		polls = 0
+		preparation = HttpPreparation.Pending
+		return preparation
+	}
+
+	override fn Poll() HttpPreparation
+	{
+		if (preparation == HttpPreparation.Pending) {
+			if (failPreparation) {
+				preparation = HttpPreparation.Failed
+				return preparation
+			}
+
+			polls = polls + 1
+
+			if (polls == 2) {
+				preparation = HttpPreparation.Prepared
+			}
+		}
+
+		return preparation
+	}
+
+	override fn End()
+	{
+		if (preparation != HttpPreparation.Idle) {
+			ends = ends + 1
+		}
+
+		preparation = HttpPreparation.Idle
+		failRead = false
+		failPreparation = false
+	}
+
+	override fn IsReady() bool
+	{
+		return preparation == HttpPreparation.Prepared
+	}
+
+	override fn GetStatus() HttpStatus
+	{
+		if (!this.IsReady()) {
+			return HttpStatus.Unknown
+		}
+
+		return HttpStatus.Ok
+	}
+
+	override fn GetContentType() HttpContentType
+	{
+		if (!this.IsReady()) {
+			return HttpContentType.Unknown
+		}
+
+		return HttpContentType.Json
+	}
+
+	override fn GetAllowedMethods() HttpAllowedMethods
+	{
+		return HttpAllowedMethods.None
+	}
+
+	override fn GetAvailableLength() int
+	{
+		if (!this.IsReady()) {
+			return 0
+		}
+
+		return 3
+	}
+
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (!this.IsReady()) {
+			return PacketDataResult.NotReady
+		}
+
+		if (index < 0 || index >= 3) {
+			return PacketDataResult.Invalid
+		}
+
+		if (failRead) {
+			value = 0xFF
+			preparation = HttpPreparation.Failed
+			return PacketDataResult.Busy
+		}
+
+		if (index == 0) {
+			value = 0x5B
+		}
+		elif (index == 1) {
+			value = snapshot
+		}
+		else {
+			value = 0x5D
+		}
+
+		return PacketDataResult.Success
+	}
+}

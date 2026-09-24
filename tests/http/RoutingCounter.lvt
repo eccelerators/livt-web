@@ -1,0 +1,19 @@
+namespace Livt.Web.Tests.Http
+
+/**
+ * Application service; deliberately mutable while the handler snapshot is read.
+ */
+component RoutingCounter
+{
+	value: int
+
+	public fn Set(value: int)
+	{
+		this.value = value
+	}
+
+	public fn Get() int
+	{
+		return value
+	}
+}

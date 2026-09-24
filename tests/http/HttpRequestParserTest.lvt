@@ -1,0 +1,651 @@
+namespace Livt.Web.Tests.Http
+
+using Livt.Net
+using Livt.Web.Http
+
+@Test
+component HttpRequestParserTest
+{
+	data: HttpRequestTestData
+	parser: HttpRequestParser<HttpRequestTestData, 256, 64, 8>
+
+	new()
+	{
+		data = new HttpRequestTestData()
+		parser = new HttpRequestParser<HttpRequestTestData, 256, 64, 8>(data)
+	}
+
+	fn Select(which: int)
+	{
+		parser.Invalidate()
+		data.Select(which)
+	}
+
+	@Test
+	fn Minimal()
+	{
+		this.Select(0)
+		assert parser.TryParse() == HttpRequestResult.Ready
+		assert parser.IsReady() == true
+	}
+
+	@Test
+	fn Version11Host()
+	{
+		this.Select(3)
+		assert parser.TryParse() == HttpRequestResult.Ready
+		assert parser.IsReady() == true
+	}
+
+	@Test
+	fn PartialToken()
+	{
+		this.Select(4)
+		assert parser.TryParse() == HttpRequestResult.Incomplete
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn PartialPercent()
+	{
+		this.Select(5)
+		assert parser.TryParse() == HttpRequestResult.Incomplete
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn PartialVersion()
+	{
+		this.Select(6)
+		assert parser.TryParse() == HttpRequestResult.Incomplete
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn PartialHeader()
+	{
+		this.Select(7)
+		assert parser.TryParse() == HttpRequestResult.Incomplete
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn MissingTerminator()
+	{
+		this.Select(8)
+		assert parser.TryParse() == HttpRequestResult.Incomplete
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn BareLf()
+	{
+		this.Select(9)
+		assert parser.TryParse() == HttpRequestResult.Malformed
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn DoubleSpace()
+	{
+		this.Select(10)
+		assert parser.TryParse() == HttpRequestResult.Malformed
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn BadPercent()
+	{
+		this.Select(11)
+		assert parser.TryParse() == HttpRequestResult.Malformed
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn ShortPercent()
+	{
+		this.Select(12)
+		assert parser.TryParse() == HttpRequestResult.Malformed
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn Fragment()
+	{
+		this.Select(13)
+		assert parser.TryParse() == HttpRequestResult.Malformed
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn BadName()
+	{
+		this.Select(14)
+		assert parser.TryParse() == HttpRequestResult.Malformed
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn WhitespaceBeforeColon()
+	{
+		this.Select(15)
+		assert parser.TryParse() == HttpRequestResult.Malformed
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn FoldedHeader()
+	{
+		this.Select(16)
+		assert parser.TryParse() == HttpRequestResult.Malformed
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn ValueControl()
+	{
+		this.Select(17)
+		assert parser.TryParse() == HttpRequestResult.Malformed
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn MissingHost()
+	{
+		this.Select(18)
+		assert parser.TryParse() == HttpRequestResult.Malformed
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn DuplicateHost()
+	{
+		this.Select(19)
+		assert parser.TryParse() == HttpRequestResult.Malformed
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn EmptyHost()
+	{
+		this.Select(20)
+		assert parser.TryParse() == HttpRequestResult.Malformed
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn InvalidPort()
+	{
+		this.Select(21)
+		assert parser.TryParse() == HttpRequestResult.Malformed
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn DuplicateLength()
+	{
+		this.Select(22)
+		assert parser.TryParse() == HttpRequestResult.Malformed
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn ConflictingLength()
+	{
+		this.Select(23)
+		assert parser.TryParse() == HttpRequestResult.Malformed
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn LengthList()
+	{
+		this.Select(24)
+		assert parser.TryParse() == HttpRequestResult.Malformed
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn SignedLength()
+	{
+		this.Select(25)
+		assert parser.TryParse() == HttpRequestResult.Malformed
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn EmptyLength()
+	{
+		this.Select(26)
+		assert parser.TryParse() == HttpRequestResult.Malformed
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn ConflictingFraming()
+	{
+		this.Select(27)
+		assert parser.TryParse() == HttpRequestResult.Malformed
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn ReversedFraming()
+	{
+		this.Select(28)
+		assert parser.TryParse() == HttpRequestResult.Malformed
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn Body()
+	{
+		this.Select(29)
+		assert parser.TryParse() == HttpRequestResult.Unsupported
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn HugeLength()
+	{
+		this.Select(30)
+		assert parser.TryParse() == HttpRequestResult.Unsupported
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn TransferCoding()
+	{
+		this.Select(31)
+		assert parser.TryParse() == HttpRequestResult.Unsupported
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn Expectation()
+	{
+		this.Select(32)
+		assert parser.TryParse() == HttpRequestResult.Unsupported
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn Post()
+	{
+		this.Select(33)
+		assert parser.TryParse() == HttpRequestResult.Ready
+		assert parser.GetMethod() == HttpMethod.Other
+	}
+
+	@Test
+	fn Version12()
+	{
+		this.Select(34)
+		assert parser.TryParse() == HttpRequestResult.Unsupported
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn AbsoluteTarget()
+	{
+		this.Select(35)
+		assert parser.TryParse() == HttpRequestResult.Unsupported
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn TrailingByte()
+	{
+		this.Select(36)
+		assert parser.TryParse() == HttpRequestResult.Unsupported
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn Pipeline()
+	{
+		this.Select(37)
+		assert parser.TryParse() == HttpRequestResult.Unsupported
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn InvalidVersion()
+	{
+		this.Select(44)
+		assert parser.TryParse() == HttpRequestResult.Malformed
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn InvalidMethod()
+	{
+		this.Select(45)
+		assert parser.TryParse() == HttpRequestResult.Malformed
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn EmptyName()
+	{
+		this.Select(46)
+		assert parser.TryParse() == HttpRequestResult.Malformed
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn HeaderBareLf()
+	{
+		this.Select(47)
+		assert parser.TryParse() == HttpRequestResult.Malformed
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn EmptyTransfer()
+	{
+		this.Select(48)
+		assert parser.TryParse() == HttpRequestResult.Malformed
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn UnsupportedHost()
+	{
+		this.Select(49)
+		assert parser.TryParse() == HttpRequestResult.Unsupported
+		assert parser.IsReady() == false
+		assert parser.GetPathLength() == 0
+		assert parser.GetHeaderCount() == 0
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+	}
+
+	@Test
+	fn TypedViewsAndBounds()
+	{
+		this.Select(1)
+		assert parser.TryParse() == HttpRequestResult.Ready
+		assert parser.GetMethod() == HttpMethod.Get
+		assert parser.GetVersion() == HttpVersion.Http11
+		assert parser.GetPathLength() == 6
+		assert parser.HasQuery()
+		assert parser.GetQueryLength() == 5
+		assert parser.GetHeaderCount() == 4
+		assert parser.GetHeaderKind(0) == HttpHeaderName.Host
+		assert parser.GetHeaderKind(1) == HttpHeaderName.Other
+		assert parser.GetHeaderKind(3) == HttpHeaderName.ContentLength
+		var path = "/a%2Fb".Encode()
+		var query = "x=1??".Encode()
+		var value: byte = 0x00
+
+		for (var i = 0; i < 6; i++) {
+			assert parser.TryReadPath(i, value) == PacketDataResult.Success
+			assert value == path[i]
+		}
+
+		for (var i = 0; i < 5; i++) {
+			assert parser.TryReadQuery(i, value) == PacketDataResult.Success
+			assert value == query[i]
+		}
+
+		assert parser.GetHeaderNameLength(0) == 4
+		assert parser.TryReadHeaderName(0, 1, value) == PacketDataResult.Success
+		assert value == 0x4F
+		assert parser.GetHeaderValueLength(0) == 14
+		assert parser.GetHeaderValueLength(1) == 3
+		assert parser.TryReadHeaderValue(1, 1, value) == PacketDataResult.Success
+		assert value == 0x09
+		assert parser.GetHeaderValueLength(2) == 0
+		assert parser.TryReadPath(-1, value) == PacketDataResult.Invalid
+		assert parser.TryReadPath(6, value) == PacketDataResult.Invalid
+		assert parser.TryReadQuery(5, value) == PacketDataResult.Invalid
+		assert parser.TryReadHeaderName(0, 4, value) == PacketDataResult.Invalid
+		assert parser.TryReadHeaderValue(2, 0, value) == PacketDataResult.Invalid
+		assert parser.TryReadHeaderValue(4, 0, value) == PacketDataResult.Invalid
+		assert parser.GetHeaderNameLength(-1) == 0
+		assert parser.IsReady()
+	}
+
+	@Test
+	fn MissingAndEmptyQueriesAreDistinct()
+	{
+		this.Select(0)
+		assert parser.TryParse() == HttpRequestResult.Ready
+		assert !parser.HasQuery()
+		assert parser.GetQueryLength() == 0
+		this.Select(2)
+		assert parser.TryParse() == HttpRequestResult.Ready
+		assert parser.HasQuery()
+		assert parser.GetQueryLength() == 0
+		var value: byte = 0x00
+		assert parser.TryReadQuery(0, value) == PacketDataResult.Invalid
+	}
+
+	@Test
+	fn EveryTruncatedPrefixStaysUnpublished()
+	{
+		for (var i = 0; i < 18; i++) {
+			this.Select(0)
+			data.Limit(i)
+			assert parser.TryParse() == HttpRequestResult.Incomplete
+			assert !parser.IsReady()
+		}
+	}
+
+	@Test
+	fn ProviderFailureAndRecovery()
+	{
+		this.Select(0)
+		data.FailAt(5)
+		assert parser.TryParse() == HttpRequestResult.ReadFailure
+		assert !parser.IsReady()
+		this.Select(0)
+		assert parser.TryParse() == HttpRequestResult.Ready
+		data.FailAt(4)
+		var value: byte = 0x00
+		assert parser.TryReadPath(0, value) == PacketDataResult.Invalid
+		assert value == 0x00
+		assert parser.GetResult() == HttpRequestResult.ReadFailure
+		assert !parser.IsReady()
+		this.Select(2)
+		assert parser.TryParse() == HttpRequestResult.Ready
+		assert parser.HasQuery()
+		parser.Invalidate()
+		assert parser.GetMethod() == HttpMethod.Other
+		assert parser.GetVersion() == HttpVersion.Unknown
+		assert !parser.HasQuery()
+		assert parser.GetPathLength() == 0
+		assert parser.TryReadPath(0, value) == PacketDataResult.NotReady
+		data.Release()
+		assert parser.TryParse() == HttpRequestResult.NotReady
+	}
+
+	@Test
+	fn HeaderReadFailureStaysUnpublished()
+	{
+		this.Select(1)
+		data.FailAt(29)
+		assert parser.TryParse() == HttpRequestResult.ReadFailure
+		assert !parser.IsReady()
+	}
+
+	@Test
+	fn PreservesEncodedAndTrailingSlashPaths()
+	{
+		this.Select(38)
+		assert parser.TryParse() == HttpRequestResult.Ready
+		assert parser.GetPathLength() == 3
+		var value: byte = 0x00
+		assert parser.TryReadPath(2, value) == PacketDataResult.Success
+		assert value == 0x2F
+		this.Select(39)
+		assert parser.TryParse() == HttpRequestResult.Ready
+		assert parser.GetPathLength() == 4
+		assert parser.TryReadPath(1, value) == PacketDataResult.Success
+		assert value == 0x25
+		assert parser.TryReadPath(3, value) == PacketDataResult.Success
+		assert value == 0x31
+	}
+
+	@Test
+	fn HeadIsClassifiedWithoutImplementingItsResponse()
+	{
+		this.Select(50)
+		assert parser.TryParse() == HttpRequestResult.Ready
+		assert parser.GetMethod() == HttpMethod.Head
+		assert parser.GetPathLength() == 1
+	}
+}

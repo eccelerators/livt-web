@@ -1,0 +1,161 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * Borrowed body with frozen response metadata. Invalidate encoders before this
+ * view, then release the body. Preparation does not copy or scan body bytes.
+ */
+component HttpResponse<P: IPacketData> : IHttpResponse
+{
+	// Borrowed stable body; its owner controls storage release.
+	body: P
+
+	// Owned publication extent and frozen response metadata.
+	ready: bool
+	length: int
+	status: HttpStatus
+	contentType: HttpContentType
+	allowedMethods: HttpAllowedMethods
+
+	/**
+	 * Borrows the body and starts with no published response.
+	 * The body owner must retain its bytes until this view and its consumers close.
+	 */
+	new(body: P)
+	{
+		this.body = body
+		this.Invalidate()
+	}
+
+	/**
+	 * Clears publication and metadata without releasing body storage.
+	 * Invalidate dependent encoders before calling this operation.
+	 */
+	public fn Invalidate()
+	{
+		ready = false
+		length = 0
+		status = HttpStatus.Unknown
+		contentType = HttpContentType.Unknown
+		allowedMethods = HttpAllowedMethods.None
+	}
+
+	/**
+	 * Replaces the previous descriptor with supported status/media/Allow metadata
+	 * and a published nonnegative body extent. Returns false with no publication;
+	 * preparation neither copies nor reads body bytes.
+	 */
+	public fn TryPrepare(status: HttpStatus, contentType: HttpContentType, allowedMethods: HttpAllowedMethods) bool
+	{
+		this.Invalidate()
+
+		if (!HttpResponseSyntax.IsSupported(status, contentType, allowedMethods) || !body.IsReady()) {
+			return false
+		}
+
+		var available = body.GetAvailableLength()
+
+		if (available < 0) {
+			return false
+		}
+
+		length = available
+		this.status = status
+		this.contentType = contentType
+		this.allowedMethods = allowedMethods
+		ready = true
+		return true
+	}
+
+	/**
+	 * Reports current publication availability, not a reservation.
+	 * Keep the borrowed providers stable until all consumers finish.
+	 */
+	override fn IsReady() bool
+	{
+		if (ready && !body.IsReady()) {
+			this.Invalidate()
+		}
+
+		return ready
+	}
+
+	/**
+	 * Returns the currently advertised byte extent, or zero without publication.
+	 * The extent is a snapshot; it does not reserve the backing storage.
+	 */
+	override fn GetAvailableLength() int
+	{
+		if (!this.IsReady()) {
+			return 0
+		}
+
+		return length
+	}
+
+	/**
+	 * Returns the selected response status; use only while IsReady is true.
+	 */
+	override fn GetStatus() HttpStatus
+	{
+		if (!this.IsReady()) {
+			return HttpStatus.Unknown
+		}
+
+		return status
+	}
+
+	/**
+	 * Returns the selected body media type; use only while IsReady is true.
+	 */
+	override fn GetContentType() HttpContentType
+	{
+		if (!this.IsReady()) {
+			return HttpContentType.Unknown
+		}
+
+		return contentType
+	}
+
+	/**
+	 * Returns the selected response Allow set, not the routing tree's match set.
+	 * Use only while IsReady is true; None omits the Allow header.
+	 */
+	override fn GetAllowedMethods() HttpAllowedMethods
+	{
+		if (!this.IsReady()) {
+			return HttpAllowedMethods.None
+		}
+
+		return allowedMethods
+	}
+
+	/**
+	 * Reads a zero-based byte within the published extent. Check PacketDataResult
+	 * before using value; keep all borrowed providers stable throughout the read.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (!this.IsReady()) {
+			return PacketDataResult.NotReady
+		}
+
+		if (index < 0 || index >= length) {
+			return PacketDataResult.Invalid
+		}
+
+		var bodyByte: byte = 0x00
+		var result = body.TryRead(index, bodyByte)
+
+		if (result != PacketDataResult.Success) {
+			this.Invalidate()
+			return result
+		}
+
+		value = bodyByte
+		return PacketDataResult.Success
+	}
+}

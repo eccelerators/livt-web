@@ -1,0 +1,117 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * Serves an existing stable body. End never releases application storage.
+ */
+component StaticContent<P: IPacketData> : IHttpHandler
+{
+	// Owned response view, borrowing the body passed at construction.
+	response: HttpResponse<P>
+	contentType: HttpContentType
+	preparation: HttpPreparation
+
+	/**
+	 * Borrows body storage and owns a response view for the chosen media type.
+	 * Starts Idle; End closes the view but never releases caller-owned body storage.
+	 */
+	new(body: P, contentType: HttpContentType)
+	{
+		response = new HttpResponse<P>(body)
+		this.contentType = contentType
+	}
+
+	/**
+	 * Publishes a 200 response over the existing body without copying it.
+	 * Unavailable/invalid content fails; repeated Begin checks the current outcome.
+	 */
+	override fn Begin() HttpPreparation
+	{
+		if (preparation != HttpPreparation.Idle) {
+			return this.Poll()
+		}
+
+		if (response.TryPrepare(HttpStatus.Ok, contentType, HttpAllowedMethods.None)) {
+			preparation = HttpPreparation.Prepared
+		}
+		else {
+			preparation = HttpPreparation.Failed
+		}
+
+		return preparation
+	}
+
+	/**
+	 * Checks the prepared body remains published; no asynchronous work is started.
+	 */
+	override fn Poll() HttpPreparation
+	{
+		if (preparation == HttpPreparation.Prepared && !response.IsReady()) {
+			preparation = HttpPreparation.Failed
+		}
+
+		return preparation
+	}
+
+	/**
+	 * Invalidates the response view and returns to Idle without releasing body storage.
+	 */
+	override fn End()
+	{
+		response.Invalidate()
+		preparation = HttpPreparation.Idle
+	}
+
+	/**
+	 * Reports current publication availability, not a reservation.
+	 * Keep the borrowed providers stable until all consumers finish.
+	 */
+	override fn IsReady() bool
+	{
+		return response.IsReady()
+	}
+
+	/**
+	 * Returns the selected response status; use only while IsReady is true.
+	 */
+	override fn GetStatus() HttpStatus
+	{
+		return response.GetStatus()
+	}
+
+	/**
+	 * Returns the selected body media type; use only while IsReady is true.
+	 */
+	override fn GetContentType() HttpContentType
+	{
+		return response.GetContentType()
+	}
+
+	/**
+	 * Returns the selected response Allow set, not the routing tree's match set.
+	 * Use only while IsReady is true; None omits the Allow header.
+	 */
+	override fn GetAllowedMethods() HttpAllowedMethods
+	{
+		return response.GetAllowedMethods()
+	}
+
+	/**
+	 * Returns the currently advertised byte extent, or zero without publication.
+	 * The extent is a snapshot; it does not reserve the backing storage.
+	 */
+	override fn GetAvailableLength() int
+	{
+		return response.GetAvailableLength()
+	}
+
+	/**
+	 * Reads a zero-based byte within the published extent. Check PacketDataResult
+	 * before using value; keep all borrowed providers stable throughout the read.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		return response.TryRead(index, value)
+	}
+}

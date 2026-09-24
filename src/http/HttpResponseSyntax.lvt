@@ -1,0 +1,274 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * Stateless internal wire vocabulary; callers validate metadata first.
+ */
+component HttpResponseSyntax
+{
+	// Byte extents shared with the response encoder.
+	public const LENGTH_PREFIX_LENGTH: int = 16
+	public const END_LENGTH: int = 23
+
+	// Starts of the fixed fragments in the packed wire vocabulary.
+	const LENGTH_PREFIX_OFFSET: int = 262
+	const END_OFFSET: int = 278
+
+	// Packed HTTP/1.0 status/header literals; descriptor offsets refer to this table.
+	const WIRE[301] = [
+		0x48, 0x54, 0x54, 0x50, 0x2F, 0x31, 0x2E, 0x30, 0x20, 0x32, 0x30, 0x30, 0x20, 0x4F, 0x4B, 0x0D,
+		0x0A, 0x48, 0x54, 0x54, 0x50, 0x2F, 0x31, 0x2E, 0x30, 0x20, 0x34, 0x30, 0x30, 0x20, 0x42, 0x61,
+		0x64, 0x20, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x0D, 0x0A, 0x48, 0x54, 0x54, 0x50, 0x2F,
+		0x31, 0x2E, 0x30, 0x20, 0x34, 0x30, 0x34, 0x20, 0x4E, 0x6F, 0x74, 0x20, 0x46, 0x6F, 0x75, 0x6E,
+		0x64, 0x0D, 0x0A, 0x48, 0x54, 0x54, 0x50, 0x2F, 0x31, 0x2E, 0x30, 0x20, 0x34, 0x30, 0x35, 0x20,
+		0x4D, 0x65, 0x74, 0x68, 0x6F, 0x64, 0x20, 0x4E, 0x6F, 0x74, 0x20, 0x41, 0x6C, 0x6C, 0x6F, 0x77,
+		0x65, 0x64, 0x0D, 0x0A, 0x48, 0x54, 0x54, 0x50, 0x2F, 0x31, 0x2E, 0x30, 0x20, 0x35, 0x30, 0x30,
+		0x20, 0x49, 0x6E, 0x74, 0x65, 0x72, 0x6E, 0x61, 0x6C, 0x20, 0x53, 0x65, 0x72, 0x76, 0x65, 0x72,
+		0x20, 0x45, 0x72, 0x72, 0x6F, 0x72, 0x0D, 0x0A, 0x43, 0x6F, 0x6E, 0x74, 0x65, 0x6E, 0x74, 0x2D,
+		0x54, 0x79, 0x70, 0x65, 0x3A, 0x20, 0x74, 0x65, 0x78, 0x74, 0x2F, 0x68, 0x74, 0x6D, 0x6C, 0x0D,
+		0x0A, 0x43, 0x6F, 0x6E, 0x74, 0x65, 0x6E, 0x74, 0x2D, 0x54, 0x79, 0x70, 0x65, 0x3A, 0x20, 0x74,
+		0x65, 0x78, 0x74, 0x2F, 0x70, 0x6C, 0x61, 0x69, 0x6E, 0x0D, 0x0A, 0x43, 0x6F, 0x6E, 0x74, 0x65,
+		0x6E, 0x74, 0x2D, 0x54, 0x79, 0x70, 0x65, 0x3A, 0x20, 0x61, 0x70, 0x70, 0x6C, 0x69, 0x63, 0x61,
+		0x74, 0x69, 0x6F, 0x6E, 0x2F, 0x6A, 0x73, 0x6F, 0x6E, 0x0D, 0x0A, 0x41, 0x6C, 0x6C, 0x6F, 0x77,
+		0x3A, 0x20, 0x47, 0x45, 0x54, 0x0D, 0x0A, 0x41, 0x6C, 0x6C, 0x6F, 0x77, 0x3A, 0x20, 0x48, 0x45,
+		0x41, 0x44, 0x0D, 0x0A, 0x41, 0x6C, 0x6C, 0x6F, 0x77, 0x3A, 0x20, 0x47, 0x45, 0x54, 0x2C, 0x20,
+		0x48, 0x45, 0x41, 0x44, 0x0D, 0x0A, 0x43, 0x6F, 0x6E, 0x74, 0x65, 0x6E, 0x74, 0x2D, 0x4C, 0x65,
+		0x6E, 0x67, 0x74, 0x68, 0x3A, 0x20, 0x0D, 0x0A, 0x43, 0x6F, 0x6E, 0x6E, 0x65, 0x63, 0x74, 0x69,
+		0x6F, 0x6E, 0x3A, 0x20, 0x63, 0x6C, 0x6F, 0x73, 0x65, 0x0D, 0x0A, 0x0D, 0x0A]
+
+	/**
+	 * Returns the packed status line start, or -1 for an unsupported/absent value.
+	 */
+	public static inline fn GetStatusOffset[](value: HttpStatus) int
+	{
+		match value
+		{
+			HttpStatus.Ok =>
+			{
+				return 0
+			}
+
+			HttpStatus.BadRequest =>
+			{
+				return 17
+			}
+
+			HttpStatus.NotFound =>
+			{
+				return 43
+			}
+
+			HttpStatus.MethodNotAllowed =>
+			{
+				return 67
+			}
+
+			HttpStatus.InternalServerError =>
+			{
+				return 100
+			}
+
+			_ =>
+			{
+				return -1
+			}
+		}
+	}
+
+	/**
+	 * Returns the status line byte length including CRLF, or zero when absent/unsupported.
+	 */
+	public static inline fn GetStatusLength[](value: HttpStatus) int
+	{
+		match value
+		{
+			HttpStatus.Ok =>
+			{
+				return 17
+			}
+
+			HttpStatus.BadRequest =>
+			{
+				return 26
+			}
+
+			HttpStatus.NotFound =>
+			{
+				return 24
+			}
+
+			HttpStatus.MethodNotAllowed =>
+			{
+				return 33
+			}
+
+			HttpStatus.InternalServerError =>
+			{
+				return 36
+			}
+
+			_ =>
+			{
+				return 0
+			}
+		}
+	}
+
+	/**
+	 * Returns the packed Content-Type header start, or -1 for an unsupported/absent value.
+	 */
+	public static inline fn GetContentTypeOffset[](value: HttpContentType) int
+	{
+		match value
+		{
+			HttpContentType.Html =>
+			{
+				return 136
+			}
+
+			HttpContentType.PlainText =>
+			{
+				return 161
+			}
+
+			HttpContentType.Json =>
+			{
+				return 187
+			}
+
+			_ =>
+			{
+				return -1
+			}
+		}
+	}
+
+	/**
+	 * Returns the Content-Type header byte length including CRLF, or zero when absent/unsupported.
+	 */
+	public static inline fn GetContentTypeLength[](value: HttpContentType) int
+	{
+		match value
+		{
+			HttpContentType.Html =>
+			{
+				return 25
+			}
+
+			HttpContentType.PlainText =>
+			{
+				return 26
+			}
+
+			HttpContentType.Json =>
+			{
+				return 32
+			}
+
+			_ =>
+			{
+				return 0
+			}
+		}
+	}
+
+	/**
+	 * Returns the packed Allow header start, or -1 for an unsupported/absent value.
+	 */
+	public static inline fn GetAllowedMethodsOffset[](value: HttpAllowedMethods) int
+	{
+		match value
+		{
+			HttpAllowedMethods.Get =>
+			{
+				return 219
+			}
+
+			HttpAllowedMethods.Head =>
+			{
+				return 231
+			}
+
+			HttpAllowedMethods.GetAndHead =>
+			{
+				return 244
+			}
+
+			_ =>
+			{
+				return -1
+			}
+		}
+	}
+
+	/**
+	 * Returns the Allow header byte length including CRLF, or zero when absent/unsupported.
+	 */
+	public static inline fn GetAllowedMethodsLength[](value: HttpAllowedMethods) int
+	{
+		match value
+		{
+			HttpAllowedMethods.Get =>
+			{
+				return 12
+			}
+
+			HttpAllowedMethods.Head =>
+			{
+				return 13
+			}
+
+			HttpAllowedMethods.GetAndHead =>
+			{
+				return 18
+			}
+
+			_ =>
+			{
+				return 0
+			}
+		}
+	}
+
+	/**
+	 * Checks status/media support and Allow consistency; only a 405 response
+	 * accepts a nonempty supported method set.
+	 */
+	public static inline fn IsSupported[](status: HttpStatus, contentType: HttpContentType, allowed: HttpAllowedMethods) bool
+	{
+		if (HttpResponseSyntax.GetStatusLength(status) == 0 || HttpResponseSyntax.GetContentTypeLength(contentType) == 0) {
+			return false
+		}
+
+		if (status == HttpStatus.MethodNotAllowed) {
+			return HttpResponseSyntax.GetAllowedMethodsLength(allowed) > 0
+		}
+
+		return allowed == HttpAllowedMethods.None
+	}
+
+	/**
+	 * Reads the packed wire vocabulary at an already validated absolute byte index.
+	 */
+	public static inline fn GetByte[](index: int) byte
+	{
+		return WIRE[index]
+	}
+
+	/**
+	 * Reads the 16-byte Content-Length prefix; requires index in 0..15.
+	 */
+	public static inline fn GetLengthPrefixByte[](index: int) byte
+	{
+		return WIRE[LENGTH_PREFIX_OFFSET + index]
+	}
+
+	/**
+	 * Reads the 23-byte CRLF/Connection: close/CRLF suffix; requires index in 0..22.
+	 */
+	public static inline fn GetEndByte[](index: int) byte
+	{
+		return WIRE[END_OFFSET + index]
+	}
+}

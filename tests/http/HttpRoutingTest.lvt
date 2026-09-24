@@ -1,0 +1,425 @@
+namespace Livt.Web.Tests.Http
+
+using Livt.Net
+using Livt.Web.Http
+
+@Test
+component HttpRoutingTest
+{
+	const WIRE[547] = [
+		0x48, 0x54, 0x54, 0x50, 0x2F, 0x31, 0x2E, 0x30, 0x20, 0x32, 0x30, 0x30, 0x20, 0x4F, 0x4B, 0x0D,
+		0x0A, 0x43, 0x6F, 0x6E, 0x74, 0x65, 0x6E, 0x74, 0x2D, 0x54, 0x79, 0x70, 0x65, 0x3A, 0x20, 0x74,
+		0x65, 0x78, 0x74, 0x2F, 0x68, 0x74, 0x6D, 0x6C, 0x0D, 0x0A, 0x43, 0x6F, 0x6E, 0x74, 0x65, 0x6E,
+		0x74, 0x2D, 0x4C, 0x65, 0x6E, 0x67, 0x74, 0x68, 0x3A, 0x20, 0x34, 0x0D, 0x0A, 0x43, 0x6F, 0x6E,
+		0x6E, 0x65, 0x63, 0x74, 0x69, 0x6F, 0x6E, 0x3A, 0x20, 0x63, 0x6C, 0x6F, 0x73, 0x65, 0x0D, 0x0A,
+		0x0D, 0x0A, 0x48, 0x4F, 0x4D, 0x45, 0x48, 0x54, 0x54, 0x50, 0x2F, 0x31, 0x2E, 0x30, 0x20, 0x32,
+		0x30, 0x30, 0x20, 0x4F, 0x4B, 0x0D, 0x0A, 0x43, 0x6F, 0x6E, 0x74, 0x65, 0x6E, 0x74, 0x2D, 0x54,
+		0x79, 0x70, 0x65, 0x3A, 0x20, 0x61, 0x70, 0x70, 0x6C, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6F, 0x6E,
+		0x2F, 0x6A, 0x73, 0x6F, 0x6E, 0x0D, 0x0A, 0x43, 0x6F, 0x6E, 0x74, 0x65, 0x6E, 0x74, 0x2D, 0x4C,
+		0x65, 0x6E, 0x67, 0x74, 0x68, 0x3A, 0x20, 0x33, 0x0D, 0x0A, 0x43, 0x6F, 0x6E, 0x6E, 0x65, 0x63,
+		0x74, 0x69, 0x6F, 0x6E, 0x3A, 0x20, 0x63, 0x6C, 0x6F, 0x73, 0x65, 0x0D, 0x0A, 0x0D, 0x0A, 0x5B,
+		0x37, 0x5D, 0x48, 0x54, 0x54, 0x50, 0x2F, 0x31, 0x2E, 0x30, 0x20, 0x34, 0x30, 0x34, 0x20, 0x4E,
+		0x6F, 0x74, 0x20, 0x46, 0x6F, 0x75, 0x6E, 0x64, 0x0D, 0x0A, 0x43, 0x6F, 0x6E, 0x74, 0x65, 0x6E,
+		0x74, 0x2D, 0x54, 0x79, 0x70, 0x65, 0x3A, 0x20, 0x74, 0x65, 0x78, 0x74, 0x2F, 0x70, 0x6C, 0x61,
+		0x69, 0x6E, 0x0D, 0x0A, 0x43, 0x6F, 0x6E, 0x74, 0x65, 0x6E, 0x74, 0x2D, 0x4C, 0x65, 0x6E, 0x67,
+		0x74, 0x68, 0x3A, 0x20, 0x31, 0x30, 0x0D, 0x0A, 0x43, 0x6F, 0x6E, 0x6E, 0x65, 0x63, 0x74, 0x69,
+		0x6F, 0x6E, 0x3A, 0x20, 0x63, 0x6C, 0x6F, 0x73, 0x65, 0x0D, 0x0A, 0x0D, 0x0A, 0x4E, 0x6F, 0x74,
+		0x20, 0x46, 0x6F, 0x75, 0x6E, 0x64, 0x0A, 0x48, 0x54, 0x54, 0x50, 0x2F, 0x31, 0x2E, 0x30, 0x20,
+		0x34, 0x30, 0x35, 0x20, 0x4D, 0x65, 0x74, 0x68, 0x6F, 0x64, 0x20, 0x4E, 0x6F, 0x74, 0x20, 0x41,
+		0x6C, 0x6C, 0x6F, 0x77, 0x65, 0x64, 0x0D, 0x0A, 0x43, 0x6F, 0x6E, 0x74, 0x65, 0x6E, 0x74, 0x2D,
+		0x54, 0x79, 0x70, 0x65, 0x3A, 0x20, 0x74, 0x65, 0x78, 0x74, 0x2F, 0x70, 0x6C, 0x61, 0x69, 0x6E,
+		0x0D, 0x0A, 0x41, 0x6C, 0x6C, 0x6F, 0x77, 0x3A, 0x20, 0x47, 0x45, 0x54, 0x2C, 0x20, 0x48, 0x45,
+		0x41, 0x44, 0x0D, 0x0A, 0x43, 0x6F, 0x6E, 0x74, 0x65, 0x6E, 0x74, 0x2D, 0x4C, 0x65, 0x6E, 0x67,
+		0x74, 0x68, 0x3A, 0x20, 0x31, 0x39, 0x0D, 0x0A, 0x43, 0x6F, 0x6E, 0x6E, 0x65, 0x63, 0x74, 0x69,
+		0x6F, 0x6E, 0x3A, 0x20, 0x63, 0x6C, 0x6F, 0x73, 0x65, 0x0D, 0x0A, 0x0D, 0x0A, 0x4D, 0x65, 0x74,
+		0x68, 0x6F, 0x64, 0x20, 0x4E, 0x6F, 0x74, 0x20, 0x41, 0x6C, 0x6C, 0x6F, 0x77, 0x65, 0x64, 0x0A,
+		0x48, 0x54, 0x54, 0x50, 0x2F, 0x31, 0x2E, 0x30, 0x20, 0x34, 0x30, 0x35, 0x20, 0x4D, 0x65, 0x74,
+		0x68, 0x6F, 0x64, 0x20, 0x4E, 0x6F, 0x74, 0x20, 0x41, 0x6C, 0x6C, 0x6F, 0x77, 0x65, 0x64, 0x0D,
+		0x0A, 0x43, 0x6F, 0x6E, 0x74, 0x65, 0x6E, 0x74, 0x2D, 0x54, 0x79, 0x70, 0x65, 0x3A, 0x20, 0x74,
+		0x65, 0x78, 0x74, 0x2F, 0x70, 0x6C, 0x61, 0x69, 0x6E, 0x0D, 0x0A, 0x41, 0x6C, 0x6C, 0x6F, 0x77,
+		0x3A, 0x20, 0x47, 0x45, 0x54, 0x0D, 0x0A, 0x43, 0x6F, 0x6E, 0x74, 0x65, 0x6E, 0x74, 0x2D, 0x4C,
+		0x65, 0x6E, 0x67, 0x74, 0x68, 0x3A, 0x20, 0x31, 0x39, 0x0D, 0x0A, 0x43, 0x6F, 0x6E, 0x6E, 0x65,
+		0x63, 0x74, 0x69, 0x6F, 0x6E, 0x3A, 0x20, 0x63, 0x6C, 0x6F, 0x73, 0x65, 0x0D, 0x0A, 0x0D, 0x0A,
+		0x4D, 0x65, 0x74, 0x68, 0x6F, 0x64, 0x20, 0x4E, 0x6F, 0x74, 0x20, 0x41, 0x6C, 0x6C, 0x6F, 0x77,
+		0x65, 0x64, 0x0A]
+	source: RoutingBytes
+	rootPath: RoutingBytes
+	statusPath: RoutingBytes
+	aboutPath: RoutingBytes
+	body: RoutingBytes
+	aboutBody: RoutingBytes
+	headBody: RoutingBytes
+	request: HttpRequestParser<RoutingBytes>
+	rootMatch: HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>
+	statusMatch: HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>
+	aboutMatch: HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>
+	counter: RoutingCounter
+	dynamic: CounterContent
+	duplicateContent: CounterContent
+	home: StaticContent<RoutingBytes>
+	headContent: StaticContent<RoutingBytes>
+	aboutContent: StaticContent<RoutingBytes>
+	root: Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>
+	head: Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>
+	status: Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>
+	duplicate: Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>
+	about: Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>
+	pair: RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>, Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>>
+	tail: RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>, Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>>
+	branch: RouteChain<RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>, Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>>, RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>, Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>>>
+	routes: RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>, RouteChain<RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>, Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>>, RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>, Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>>>>
+	router: HttpRouter<RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>, RouteChain<RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>, Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>>, RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>, Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>>>>>
+	encoder: HttpResponseEncoder<HttpRouter<RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>, RouteChain<RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>, Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>>, RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>, Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>>>>>>
+
+	new()
+	{
+		source = new RoutingBytes()
+		rootPath = new RoutingBytes()
+		statusPath = new RoutingBytes()
+		aboutPath = new RoutingBytes()
+		body = new RoutingBytes()
+		aboutBody = new RoutingBytes()
+		headBody = new RoutingBytes()
+		request = new HttpRequestParser<RoutingBytes>(source)
+		rootMatch = new HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>(request, rootPath)
+		statusMatch = new HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>(request, statusPath)
+		aboutMatch = new HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>(request, aboutPath)
+		counter = new RoutingCounter()
+		dynamic = new CounterContent(counter)
+		duplicateContent = new CounterContent(counter)
+		home = new StaticContent<RoutingBytes>(body, HttpContentType.Html)
+		headContent = new StaticContent<RoutingBytes>(headBody, HttpContentType.PlainText)
+		aboutContent = new StaticContent<RoutingBytes>(aboutBody, HttpContentType.PlainText)
+		root = new Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>(HttpMethod.Get, request, rootMatch, home)
+		head = new Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>(HttpMethod.Head, request, statusMatch, headContent)
+		status = new Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>(HttpMethod.Get, request, statusMatch, dynamic)
+		duplicate = new Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>(HttpMethod.Get, request, statusMatch, duplicateContent)
+		about = new Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>(HttpMethod.Get, request, aboutMatch, aboutContent)
+		pair = new RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>, Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>>(head, status)
+		tail = new RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>, Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>>(duplicate, about)
+		branch = new RouteChain<RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>, Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>>, RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>, Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>>>(pair, tail)
+		routes = new RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>, RouteChain<RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>, Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>>, RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>, Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>>>>(root, branch)
+		router = new HttpRouter<RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>, RouteChain<RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>, Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>>, RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>, Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>>>>>(routes)
+		encoder = new HttpResponseEncoder<HttpRouter<RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>, RouteChain<RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>, Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>>, RouteChain<Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, CounterContent>, Route<HttpRequestParser<RoutingBytes>, HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>, StaticContent<RoutingBytes>>>>>>>(router)
+	}
+
+	fn Select(requestId: int)
+	{
+		encoder.Invalidate()
+		router.End()
+		request.Invalidate()
+		source.Select(requestId)
+		rootPath.Select(0)
+		statusPath.Select(1)
+		aboutPath.Select(2)
+		body.Select(44)
+		aboutBody.Select(45)
+		headBody.Select(46)
+		counter.Set(7)
+		dynamic.ResetCounts()
+		duplicateContent.ResetCounts()
+		assert request.TryParse() == HttpRequestResult.Ready
+	}
+
+	fn CheckWire(offset: int, length: int)
+	{
+		assert encoder.TryPrepare(512)
+		assert encoder.GetAvailableLength() == length
+
+		for (var i: int = 0; i < length; i++) {
+			var value: byte = 0xFF
+			assert encoder.TryRead(i, value) == PacketDataResult.Success
+			assert value == WIRE[offset + i]
+		}
+	}
+
+	@Test
+	fn RootResponse()
+	{
+		this.Select(25)
+		assert router.Select() == RouteDispatch.Selected
+		assert router.Begin() == HttpPreparation.Prepared
+		this.CheckWire(0, 86)
+		assert dynamic.GetStarts() == 0
+		assert duplicateContent.GetStarts() == 0
+	}
+
+	@Test
+	fn LaterMethodAndNestedFirstMatch()
+	{
+		this.Select(26)
+		assert router.Poll() == HttpPreparation.Idle
+		assert router.Begin() == HttpPreparation.Idle
+		assert router.Select() == RouteDispatch.Selected
+		assert dynamic.GetStarts() == 0
+		assert router.Begin() == HttpPreparation.Pending
+		assert router.Begin() == HttpPreparation.Pending
+		assert router.Select() == RouteDispatch.Selected
+		assert router.Poll() == HttpPreparation.Pending
+		assert !router.IsReady()
+		assert !encoder.TryPrepare(512)
+		counter.Set(9)
+		assert router.Poll() == HttpPreparation.Prepared
+		assert router.Poll() == HttpPreparation.Prepared
+		assert router.Begin() == HttpPreparation.Prepared
+		assert dynamic.GetStarts() == 1
+		assert duplicateContent.GetStarts() == 0
+		this.CheckWire(86, 92)
+		encoder.Invalidate()
+		router.End()
+		router.End()
+		assert dynamic.GetEnds() == 1
+		assert duplicateContent.GetEnds() == 0
+		assert body.IsReady()
+	}
+
+	@Test
+	fn QueryMatchesStatus()
+	{
+		this.Select(27)
+		assert router.Select() == RouteDispatch.Selected
+		assert router.Begin() == HttpPreparation.Pending
+		assert router.Poll() == HttpPreparation.Pending
+		assert router.Poll() == HttpPreparation.Prepared
+		this.CheckWire(86, 92)
+	}
+
+	@Test
+	fn TrailingSlashFallsBack()
+	{
+		this.Select(28)
+		assert router.Select() == RouteDispatch.NotFound
+		assert router.Begin() == HttpPreparation.Prepared
+		this.CheckWire(178, 101)
+		assert dynamic.GetStarts() == 0
+	}
+
+	@Test
+	fn UnknownPathWithOtherMethodIs404()
+	{
+		this.Select(34)
+		assert router.Select() == RouteDispatch.NotFound
+		assert router.Begin() == HttpPreparation.Prepared
+		assert router.GetAllowedMethods() == HttpAllowedMethods.None
+		this.CheckWire(178, 101)
+	}
+
+	@Test
+	fn AllowUnionAndDeduplication()
+	{
+		this.Select(32)
+		assert router.Select() == RouteDispatch.MethodNotAllowed
+		assert router.Select() == RouteDispatch.MethodNotAllowed
+		assert router.Begin() == HttpPreparation.Prepared
+		assert router.GetAllowedMethods() == HttpAllowedMethods.GetAndHead
+		this.CheckWire(279, 137)
+		assert dynamic.GetStarts() == 0
+		assert duplicateContent.GetStarts() == 0
+	}
+
+	@Test
+	fn AllowOnlyIncludesMatchingPaths()
+	{
+		this.Select(33)
+		assert router.Select() == RouteDispatch.MethodNotAllowed
+		assert router.Begin() == HttpPreparation.Prepared
+		assert router.GetAllowedMethods() == HttpAllowedMethods.Get
+		this.CheckWire(416, 131)
+	}
+
+	@Test
+	fn HeadSelectsFirstMethodWithoutStartingGet()
+	{
+		this.Select(31)
+		assert router.Select() == RouteDispatch.Selected
+		assert router.Begin() == HttpPreparation.Prepared
+		assert router.GetContentType() == HttpContentType.PlainText
+		assert dynamic.GetStarts() == 0
+		assert duplicateContent.GetStarts() == 0
+		// HEAD transport/body suppression is not implemented by the encoder.
+	}
+
+	@Test
+	fn HandlerFailureDoesNotFallThrough()
+	{
+		this.Select(26)
+		counter.Set(10)
+		assert router.Select() == RouteDispatch.Selected
+		assert router.Begin() == HttpPreparation.Failed
+		counter.Set(7)
+		assert router.Begin() == HttpPreparation.Failed
+		assert router.Poll() == HttpPreparation.Failed
+		assert router.Select() == RouteDispatch.Selected
+		assert !router.IsReady()
+		assert router.GetStatus() == HttpStatus.Unknown
+		assert !encoder.TryPrepare(512)
+		assert dynamic.GetStarts() == 1
+		assert duplicateContent.GetStarts() == 0
+	}
+
+	@Test
+	fn PendingCancellationAndRestart()
+	{
+		this.Select(26)
+		assert router.Select() == RouteDispatch.Selected
+		assert router.Begin() == HttpPreparation.Pending
+		router.End()
+		router.End()
+		assert dynamic.GetStarts() == 1
+		assert dynamic.GetEnds() == 1
+		assert router.Poll() == HttpPreparation.Idle
+		assert !router.IsReady()
+		assert router.Select() == RouteDispatch.Selected
+		assert router.Begin() == HttpPreparation.Pending
+		assert dynamic.GetStarts() == 2
+	}
+
+	@Test
+	fn MatcherFailureIsNot404()
+	{
+		this.Select(26)
+		statusPath.FailAt(0)
+		assert router.Select() == RouteDispatch.Failed
+		assert router.Begin() == HttpPreparation.Failed
+		assert !encoder.TryPrepare(512)
+		assert dynamic.GetStarts() == 0
+	}
+
+	@Test
+	fn EarlierMatchStopsScan()
+	{
+		this.Select(25)
+		statusPath.FailAt(0)
+		assert router.Select() == RouteDispatch.Selected
+		assert router.Begin() == HttpPreparation.Prepared
+		assert statusPath.GetReads() == 0
+		this.CheckWire(0, 86)
+	}
+
+	@Test
+	fn NotReadyRetriesWithoutStartingHandler()
+	{
+		this.Select(26)
+		statusPath.Release()
+		assert router.Select() == RouteDispatch.NotReady
+		assert router.Begin() == HttpPreparation.Idle
+		assert dynamic.GetStarts() == 0
+		statusPath.Select(1)
+		assert router.Select() == RouteDispatch.Selected
+		assert router.Begin() == HttpPreparation.Pending
+		assert dynamic.GetStarts() == 1
+	}
+
+	@Test
+	fn FailureDuringEmissionClearsPublication()
+	{
+		this.Select(26)
+		assert router.Select() == RouteDispatch.Selected
+		assert router.Begin() == HttpPreparation.Pending
+		assert router.Poll() == HttpPreparation.Pending
+		assert router.Poll() == HttpPreparation.Prepared
+		assert encoder.TryPrepare(512)
+		dynamic.FailRead()
+		var headerLength = encoder.GetHeaderLength()
+		var value: byte = 0xFF
+		assert encoder.TryRead(headerLength, value) == PacketDataResult.Busy
+		assert value == 0x00
+		assert !router.IsReady()
+		assert !encoder.IsReady()
+		assert router.Poll() == HttpPreparation.Failed
+		assert router.GetAvailableLength() == 0
+		assert duplicateContent.GetStarts() == 0
+	}
+
+	@Test
+	fn CheckedResponseBounds()
+	{
+		this.Select(25)
+		assert router.Select() == RouteDispatch.Selected
+		assert router.Begin() == HttpPreparation.Prepared
+		var value: byte = 0xFF
+		assert router.TryRead(-1, value) == PacketDataResult.Invalid
+		assert value == 0x00
+		assert router.TryRead(4, value) == PacketDataResult.Invalid
+		assert value == 0x00
+		assert router.IsReady()
+		encoder.Invalidate()
+		router.End()
+		assert router.TryRead(0, value) == PacketDataResult.NotReady
+		assert value == 0x00
+	}
+
+	@Test
+	fn ReuseAfterFallbackClearsDescendants()
+	{
+		this.Select(32)
+		assert router.Select() == RouteDispatch.MethodNotAllowed
+		assert router.Begin() == HttpPreparation.Prepared
+		router.End()
+		request.Invalidate()
+		source.Select(43)
+		assert request.TryParse() == HttpRequestResult.Ready
+		assert router.Select() == RouteDispatch.Selected
+		assert router.Begin() == HttpPreparation.Prepared
+		assert router.GetStatus() == HttpStatus.Ok
+		assert router.GetAllowedMethods() == HttpAllowedMethods.None
+		assert router.GetAvailableLength() == 5
+	}
+
+	@Test
+	fn DirectRouteBeginDoesNotPollPendingWork()
+	{
+		this.Select(26)
+		assert status.Select() == RouteDispatch.Selected
+		assert status.Begin() == HttpPreparation.Pending
+		assert status.Begin() == HttpPreparation.Pending
+		assert status.Begin() == HttpPreparation.Pending
+		assert status.Poll() == HttpPreparation.Pending
+		assert status.Poll() == HttpPreparation.Prepared
+		assert dynamic.GetStarts() == 1
+		status.End()
+		assert dynamic.GetEnds() == 1
+	}
+
+	@Test
+	fn CancelSelectionBeforeBegin()
+	{
+		this.Select(26)
+		assert router.Select() == RouteDispatch.Selected
+		router.End()
+		assert dynamic.GetStarts() == 0
+		assert dynamic.GetEnds() == 0
+		assert router.Poll() == HttpPreparation.Idle
+	}
+
+	@Test
+	fn UnpublishedRequestCanBeRetried()
+	{
+		this.Select(26)
+		request.Invalidate()
+		assert router.Select() == RouteDispatch.NotReady
+		assert rootPath.GetReads() == 0
+		assert router.Begin() == HttpPreparation.Idle
+		assert request.TryParse() == HttpRequestResult.Ready
+		assert router.Select() == RouteDispatch.Selected
+		assert router.Begin() == HttpPreparation.Pending
+		assert dynamic.GetStarts() == 1
+	}
+
+	@Test
+	fn PendingHandlerFailureIsTerminal()
+	{
+		this.Select(26)
+		assert router.Select() == RouteDispatch.Selected
+		assert router.Begin() == HttpPreparation.Pending
+		dynamic.FailPreparation()
+		assert router.Poll() == HttpPreparation.Failed
+		assert router.Begin() == HttpPreparation.Failed
+		assert router.Poll() == HttpPreparation.Failed
+		assert dynamic.GetStarts() == 1
+		assert duplicateContent.GetStarts() == 0
+		assert !router.IsReady()
+		router.End()
+		assert dynamic.GetEnds() == 1
+	}
+}

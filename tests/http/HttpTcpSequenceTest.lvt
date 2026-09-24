@@ -1,0 +1,27 @@
+namespace Livt.Web.Tests.Http
+
+using Livt.Web.Http
+
+@Test
+component HttpTcpSequenceTest
+{
+	@Test
+	fn ByteCarry()
+	{
+		var bytes = HttpTcpSequence.Advance(0x0102FFFF as uint, 1)
+		assert bytes[0] == 0x01
+		assert bytes[1] == 0x03
+		assert bytes[2] == 0x00
+		assert bytes[3] == 0x00
+	}
+
+	@Test
+	fn UnsignedWrap()
+	{
+		var bytes = HttpTcpSequence.Advance(0xFFFFFFFF as uint, 24)
+		assert bytes[0] == 0x00
+		assert bytes[1] == 0x00
+		assert bytes[2] == 0x00
+		assert bytes[3] == 0x17
+	}
+}

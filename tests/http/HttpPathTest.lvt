@@ -1,0 +1,214 @@
+namespace Livt.Web.Tests.Http
+
+using Livt.Net
+using Livt.Web.Http
+
+@Test
+component HttpPathTest
+{
+	source: RoutingBytes
+	path: RoutingBytes
+	request: HttpRequestParser<RoutingBytes>
+	matcher: HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>
+	bounded: HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes, 3>
+
+	new()
+	{
+		source = new RoutingBytes()
+		path = new RoutingBytes()
+		request = new HttpRequestParser<RoutingBytes>(source)
+		matcher = new HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes>(request, path)
+		bounded = new HttpPath<HttpRequestParser<RoutingBytes>, RoutingBytes, 3>(request, path)
+	}
+
+	fn Select(requestId: int, pathId: int)
+	{
+		request.Invalidate()
+		source.Select(requestId)
+		path.Select(pathId)
+		assert request.TryParse() == HttpRequestResult.Ready
+	}
+
+	@Test
+	fn Root()
+	{
+		this.Select(25, 0)
+		assert matcher.TryMatch() == HttpMatchResult.Match
+	}
+
+	@Test
+	fn Exact()
+	{
+		this.Select(26, 1)
+		assert matcher.TryMatch() == HttpMatchResult.Match
+	}
+
+	@Test
+	fn QueryExcluded()
+	{
+		this.Select(27, 1)
+		assert matcher.TryMatch() == HttpMatchResult.Match
+	}
+
+	@Test
+	fn EmptyQueryExcluded()
+	{
+		this.Select(42, 1)
+		assert matcher.TryMatch() == HttpMatchResult.Match
+	}
+
+	@Test
+	fn TrailingSlashDistinct()
+	{
+		this.Select(28, 1)
+		assert matcher.TryMatch() == HttpMatchResult.NoMatch
+	}
+
+	@Test
+	fn CaseDistinct()
+	{
+		this.Select(29, 1)
+		assert matcher.TryMatch() == HttpMatchResult.NoMatch
+	}
+
+	@Test
+	fn EncodedPathPreserved()
+	{
+		this.Select(35, 4)
+		assert matcher.TryMatch() == HttpMatchResult.Match
+	}
+
+	@Test
+	fn NoPercentDecoding()
+	{
+		this.Select(35, 3)
+		assert matcher.TryMatch() == HttpMatchResult.NoMatch
+	}
+
+	@Test
+	fn EncodedSlashDistinct()
+	{
+		this.Select(37, 16)
+		assert matcher.TryMatch() == HttpMatchResult.NoMatch
+	}
+
+	@Test
+	fn EncodedSlashMatches()
+	{
+		this.Select(37, 15)
+		assert matcher.TryMatch() == HttpMatchResult.Match
+	}
+
+	@Test
+	fn NoHexCaseNormalization()
+	{
+		this.Select(39, 21)
+		assert matcher.TryMatch() == HttpMatchResult.NoMatch
+	}
+
+	@Test
+	fn DotSegmentsPreserved()
+	{
+		this.Select(40, 22)
+		assert matcher.TryMatch() == HttpMatchResult.Match
+	}
+
+	@Test
+	fn NoDotSegmentNormalization()
+	{
+		this.Select(40, 23)
+		assert matcher.TryMatch() == HttpMatchResult.NoMatch
+	}
+
+	@Test
+	fn NoSlashCollapse()
+	{
+		this.Select(41, 16)
+		assert matcher.TryMatch() == HttpMatchResult.NoMatch
+	}
+
+	@Test
+	fn EmptyConfiguration()
+	{
+		this.Select(26, 8)
+		assert matcher.TryMatch() == HttpMatchResult.Failed
+	}
+
+	@Test
+	fn MissingLeadingSlash()
+	{
+		this.Select(26, 9)
+		assert matcher.TryMatch() == HttpMatchResult.Failed
+	}
+
+	@Test
+	fn QueryInConfiguration()
+	{
+		this.Select(26, 10)
+		assert matcher.TryMatch() == HttpMatchResult.Failed
+	}
+
+	@Test
+	fn FragmentInConfiguration()
+	{
+		this.Select(26, 11)
+		assert matcher.TryMatch() == HttpMatchResult.Failed
+	}
+
+	@Test
+	fn IncompleteEscape()
+	{
+		this.Select(26, 12)
+		assert matcher.TryMatch() == HttpMatchResult.Failed
+	}
+
+	@Test
+	fn BadEscape()
+	{
+		this.Select(26, 13)
+		assert matcher.TryMatch() == HttpMatchResult.Failed
+	}
+
+	@Test
+	fn ControlInConfiguration()
+	{
+		this.Select(26, 14)
+		assert matcher.TryMatch() == HttpMatchResult.Failed
+	}
+
+	@Test
+	fn BoundsBeforeReads()
+	{
+		this.Select(38, 19)
+		assert bounded.TryMatch() == HttpMatchResult.Match
+		path.Limit(4)
+		assert bounded.TryMatch() == HttpMatchResult.Failed
+		path.Select(1)
+		assert bounded.TryMatch() == HttpMatchResult.Failed
+		assert path.GetReads() == 0
+		path.Limit(-1)
+		assert bounded.TryMatch() == HttpMatchResult.Failed
+	}
+
+	@Test
+	fn UnpublishedInputs()
+	{
+		this.Select(26, 1)
+		path.Release()
+		assert matcher.TryMatch() == HttpMatchResult.NotReady
+		path.Select(1)
+		request.Invalidate()
+		assert matcher.TryMatch() == HttpMatchResult.NotReady
+	}
+
+	@Test
+	fn ProviderReadFailure()
+	{
+		this.Select(26, 1)
+		path.FailAt(3)
+		assert matcher.TryMatch() == HttpMatchResult.Failed
+		this.Select(26, 1)
+		source.FailAt(5)
+		assert matcher.TryMatch() == HttpMatchResult.Failed
+	}
+}

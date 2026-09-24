@@ -1,0 +1,15 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * Typed HTTP request metadata/result; enum ordinals are not wire values.
+ */
+enum HttpHeaderName
+{
+	Other
+	Host
+	ContentLength
+	TransferEncoding
+	Expect
+}

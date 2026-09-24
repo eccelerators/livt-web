@@ -1,0 +1,58 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * Transport boundary: request source is constructor-bound; response is complete
+ * HTTP bytes. Stop/invalidate downstream readers before Complete, Abort or Release.
+ * MarkEmitted keeps bytes readable; Complete means retention has also ended.
+ */
+interface IHttpApplication : IPacketData
+{
+	/**
+	 * Accepts a complete request extent and a nonnegative complete-response byte budget.
+	 * Incomplete/unpublished input waits without starting a handler. Once accepted,
+	 * retries preserve the transaction and its frozen budget; use Poll to resume it.
+	 */
+	fn Begin(maxResponseBytes: int, receiveComplete: bool) HttpApplicationState
+
+	/**
+	 * Resumes route matching or pending handler preparation without repeating accepted
+	 * actions. A terminal phase is retained until completion, cancellation or release.
+	 */
+	fn Poll() HttpApplicationState
+
+	/**
+	 * Returns the current lifecycle phase without progressing the transaction.
+	 */
+	fn GetState() HttpApplicationState
+
+	/**
+	 * Returns the last parse outcome; Release resets it to NotReady.
+	 */
+	fn GetRequestResult() HttpRequestResult
+
+	/**
+	 * Records local emission while retaining all response bytes and request borrows.
+	 * Returns false without a readable publication; success is not peer acknowledgement.
+	 */
+	fn MarkEmitted() bool
+
+	/**
+	 * Requires Retained and stopped/invalidated downstream consumers.
+	 * Closes encoder, handler and request views, then enters Completed; otherwise false.
+	 */
+	fn Complete() bool
+
+	/**
+	 * After downstream consumers stop, cancels pending work and closes all views.
+	 * Does not undo handler side effects or release caller-owned provider storage.
+	 */
+	fn Abort()
+
+	/**
+	 * Returns to Idle after terminal/idle/waiting states. Returns false while
+	 * matching, preparing, published or retained; never releases caller-owned storage.
+	 */
+	fn Release() bool
+}

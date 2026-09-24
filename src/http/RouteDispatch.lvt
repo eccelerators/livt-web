@@ -1,0 +1,13 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+enum RouteDispatch
+{
+	Idle
+	NotFound
+	MethodNotAllowed
+	NotReady
+	Failed
+	Selected
+}

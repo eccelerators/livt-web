@@ -1,0 +1,12 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+enum HttpNetworkResponse
+{
+	None
+	Arp
+	IcmpEcho
+	TcpSynAck
+	Http
+}

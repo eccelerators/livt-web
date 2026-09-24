@@ -1,0 +1,10 @@
+namespace Livt.Web.Prototype
+using Livt.Net
+
+/** Metadata and body usable only while IsReady; body excludes HTTP headers. */
+interface IHttpResponse : IPacketData
+{
+	fn GetStatus() HttpStatus
+
+	fn GetContentType() HttpContentType
+}

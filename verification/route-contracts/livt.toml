@@ -1,0 +1,10 @@
+[project]
+name = "WebRouteContracts"
+version = "0.1.0"
+path = "src"
+outdir = "out"
+[tests]
+path = "tests"
+components = ["RouteContractsTest"]
+[dependencies]
+"Livt.Net" = { path = "../../../livt-net" }

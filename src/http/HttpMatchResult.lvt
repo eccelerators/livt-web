@@ -1,0 +1,11 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+enum HttpMatchResult
+{
+	Match
+	NoMatch
+	NotReady
+	Failed
+}

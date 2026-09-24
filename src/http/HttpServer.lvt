@@ -3,575 +3,123 @@ namespace Livt.Web.Http
 using Livt.Net
 
 /**
- * Coordinates the narrow IPv4/TCP/HTTP request-response subset.
+ * Default HTTP server assembly over one shared capture/parser graph.
+ * Owns router, application encoder and network adapter; borrows source and routes.
+ * Advanced consumers may compose these three layers separately.
  */
-component HttpServer<S: IPacketData, C: IHttpContent>
+component HttpServer<S: IPacketData, T: IHttpRoute, CAPACITY: int = 1514> : IPacketData
 {
-	// Unsigned network-order sequence decomposition.
-	const BYTE_RADIX: uint = 256
-	const WORD_RADIX: uint = 65536
-	const HIGH_BYTE_SCALE: uint = 16777216
-	// No response has been selected.
-	public const RESPONSE_NONE: int = 0
-	// The selected response is an HTTP response frame.
-	public const RESPONSE_HTTP: int = 2
-	// The selected response is a TCP SYN-ACK.
-	public const RESPONSE_SYN_ACK: int = 3
-	// The selected response is an HTTP response for route 2.
-	public const RESPONSE_HTTP_ROUTE2: int = 4
-	// The selected response is an HTTP response for route 3.
-	public const RESPONSE_HTTP_ROUTE3: int = 5
-	// Number of bytes in an Ethernet/IPv4/TCP SYN-ACK, padded to Ethernet minimum.
-	public const SYN_ACK_RESPONSE_LENGTH: int = 60
-	// TCP connection state: no active connection.
-	public const CONN_CLOSED: int = 0
-	// TCP connection state: SYN received, SYN-ACK sent, waiting for ACK.
-	public const CONN_SYN_RECEIVED: int = 1
-	// TCP connection state: three-way handshake complete.
-	public const CONN_ESTABLISHED: int = 2
+	// Owned composition nodes; shared references never create another instance.
+	router: HttpRouter<T>
+	application: HttpApplication<TcpConnectionRecognizer<S>, T>
 
-	responseKind: int
-	responseLength: int
-	connState: int
-	localMac: byte[6]
-	localIp: byte[4]
-	localPort: byte[2]
-	responseBodyLength: int
-	route2Configured: bool
-	route3Configured: bool
+	endpoint: HttpNetworkEndpoint<S, HttpApplication<TcpConnectionRecognizer<S>, T>, CAPACITY>
 
-	r1b0: byte
-	r1b1: byte
-	r1b2: byte
-	r1b3: byte
-	r1b4: byte
-	r1b5: byte
-	r1b6: byte
-	r1len: int
-	r2b0: byte
-	r2b1: byte
-	r2b2: byte
-	r2b3: byte
-	r2b4: byte
-	r2b5: byte
-	r2b6: byte
-	r2len: int
-	r3b0: byte
-	r3b1: byte
-	r3b2: byte
-	r3b3: byte
-	r3b4: byte
-	r3b5: byte
-	r3b6: byte
-	r3len: int
-	request: HttpRequestRecognizer<TcpConnectionRecognizer<S>>
-	request2: HttpRequestRecognizer<TcpConnectionRecognizer<S>>
-	request3: HttpRequestRecognizer<TcpConnectionRecognizer<S>>
-	response: HttpResponseFrameComposer<C>
-	responseGenerator: HttpResponseGenerator
-	conn: TcpConnectionRecognizer<S>
-	content: C
-	synData: ArrayPacketData<1>
-	synSegment: TcpSegment<ArrayPacketData<1>>
-	synPacket: TcpIpv4Packet<ArrayPacketData<1>>
-	synFrame: TcpIpv4Frame<ArrayPacketData<1>>
-	new(
-		ethernet: EthernetFrameParser<S>,
-		ipv4: Ipv4PacketParser<EthernetFrameParser<S>>,
-		content: C,
-		localMac: byte[6],
-		localIp: byte[4],
-		localPort: byte[2])
+	/**
+	 * All parsers and routes must share this exact source/request graph and reset domain.
+	 * Does not acquire/release receive storage. Retain it until TryRelease succeeds.
+	 */
+	new(source: S, ethernet: EthernetFrameParser<S>, ipv4: Ipv4PacketParser<EthernetFrameParser<S>>,
+		connection: TcpConnectionRecognizer<S>, request: HttpRequestParser<TcpConnectionRecognizer<S>>, routes: T,
+		localMac: byte[6], localIp: byte[4], localPort: byte[2])
 	{
-		this.localMac[0] = localMac[0]
-		this.localMac[1] = localMac[1]
-		this.localMac[2] = localMac[2]
-		this.localMac[3] = localMac[3]
-		this.localMac[4] = localMac[4]
-		this.localMac[5] = localMac[5]
-		this.localIp[0] = localIp[0]
-		this.localIp[1] = localIp[1]
-		this.localIp[2] = localIp[2]
-		this.localIp[3] = localIp[3]
-		this.localPort[0] = localPort[0]
-		this.localPort[1] = localPort[1]
-
-		this.responseBodyLength = 0
-
-		this.route2Configured = false
-		this.route3Configured = false
-		this.r1b0 = 0x2F
-		this.r1b1 = 0x00
-		this.r1b2 = 0x00
-		this.r1b3 = 0x00
-		this.r1b4 = 0x00
-		this.r1b5 = 0x00
-		this.r1b6 = 0x00
-		this.r1len = 1
-		this.r2b0 = 0x00
-		this.r2b1 = 0x00
-		this.r2b2 = 0x00
-		this.r2b3 = 0x00
-		this.r2b4 = 0x00
-		this.r2b5 = 0x00
-		this.r2b6 = 0x00
-		this.r2len = 0
-		this.r3b0 = 0x00
-		this.r3b1 = 0x00
-		this.r3b2 = 0x00
-		this.r3b3 = 0x00
-		this.r3b4 = 0x00
-		this.r3b5 = 0x00
-		this.r3b6 = 0x00
-		this.r3len = 0
-
-		this.connState = CONN_CLOSED
-
-		this.conn = new TcpConnectionRecognizer<S>(ethernet, ipv4)
-		this.request = new HttpRequestRecognizer<TcpConnectionRecognizer<S>>(this.conn)
-		this.request2 = new HttpRequestRecognizer<TcpConnectionRecognizer<S>>(this.conn)
-		this.request3 = new HttpRequestRecognizer<TcpConnectionRecognizer<S>>(this.conn)
-		this.content = content
-		this.response = new HttpResponseFrameComposer<C>(content)
-		this.responseGenerator = new HttpResponseGenerator()
-		this.synData = new ArrayPacketData<1>()
-		this.synSegment = new TcpSegment<ArrayPacketData<1>>(this.synData)
-		this.synPacket = new TcpIpv4Packet<ArrayPacketData<1>>(this.synSegment)
-		this.synFrame = new TcpIpv4Frame<ArrayPacketData<1>>(this.synPacket)
+		this.router = new HttpRouter<T>(routes)
+		this.application = new HttpApplication<TcpConnectionRecognizer<S>, T>(request, router)
+		this.endpoint = new HttpNetworkEndpoint<S, HttpApplication<TcpConnectionRecognizer<S>, T>, CAPACITY>(source, ethernet, ipv4, connection, application, localMac, localIp, localPort)
 	}
 
 	/**
-	 * Configures the path matched by a route. Use route=1 for the primary path,
-	 * route=2 to activate and configure the secondary route.
-	 * Path IDs: 1 selects "/", 2 selects the second built-in path, 3 selects the third built-in path.
+	 * Handles one stable published capture; returns the existing phase while active.
+	 * Requires an acquired source and no outstanding readers of the previous frame.
 	 */
-	public fn SetRoutePath(route: int, path: int)
+	public fn HandleFrame() HttpTransportState
 	{
-		if (path == 1) {
-
-			if (route == 1) {
-				this.r1b0 = 0x2F
-				this.r1b1 = 0x00
-				this.r1b2 = 0x00
-				this.r1b3 = 0x00
-				this.r1b4 = 0x00
-				this.r1b5 = 0x00
-				this.r1b6 = 0x00
-				this.r1len = 1
-				this.request.SetPath(this.r1b0, this.r1b1, this.r1b2, this.r1b3, this.r1b4, this.r1b5, this.r1b6, this.r1len)
-			}
-
-			if (route == 2) {
-				this.r2b0 = 0x2F
-				this.r2b1 = 0x00
-				this.r2b2 = 0x00
-				this.r2b3 = 0x00
-				this.r2b4 = 0x00
-				this.r2b5 = 0x00
-				this.r2b6 = 0x00
-				this.r2len = 1
-				this.request2.SetPath(this.r2b0, this.r2b1, this.r2b2, this.r2b3, this.r2b4, this.r2b5, this.r2b6, this.r2len)
-				this.route2Configured = true
-			}
-
-			if (route == 3) {
-				this.r3b0 = 0x2F
-				this.r3b1 = 0x00
-				this.r3b2 = 0x00
-				this.r3b3 = 0x00
-				this.r3b4 = 0x00
-				this.r3b5 = 0x00
-				this.r3b6 = 0x00
-				this.r3len = 1
-				this.request3.SetPath(this.r3b0, this.r3b1, this.r3b2, this.r3b3, this.r3b4, this.r3b5, this.r3b6, this.r3len)
-				this.route3Configured = true
-			}
-		}
-
-		if (path == 2) {
-
-			if (route == 1) {
-				this.r1b0 = 0x2F
-				this.r1b1 = 0x61
-				this.r1b2 = 0x62
-				this.r1b3 = 0x6F
-				this.r1b4 = 0x75
-				this.r1b5 = 0x74
-				this.r1b6 = 0x00
-				this.r1len = 6
-				this.request.SetPath(this.r1b0, this.r1b1, this.r1b2, this.r1b3, this.r1b4, this.r1b5, this.r1b6, this.r1len)
-			}
-
-			if (route == 2) {
-				this.r2b0 = 0x2F
-				this.r2b1 = 0x61
-				this.r2b2 = 0x62
-				this.r2b3 = 0x6F
-				this.r2b4 = 0x75
-				this.r2b5 = 0x74
-				this.r2b6 = 0x00
-				this.r2len = 6
-				this.request2.SetPath(this.r2b0, this.r2b1, this.r2b2, this.r2b3, this.r2b4, this.r2b5, this.r2b6, this.r2len)
-				this.route2Configured = true
-			}
-
-			if (route == 3) {
-				this.r3b0 = 0x2F
-				this.r3b1 = 0x61
-				this.r3b2 = 0x62
-				this.r3b3 = 0x6F
-				this.r3b4 = 0x75
-				this.r3b5 = 0x74
-				this.r3b6 = 0x00
-				this.r3len = 6
-				this.request3.SetPath(this.r3b0, this.r3b1, this.r3b2, this.r3b3, this.r3b4, this.r3b5, this.r3b6, this.r3len)
-				this.route3Configured = true
-			}
-		}
-
-		if (path == 3) {
-
-			if (route == 1) {
-				this.r1b0 = 0x2F
-				this.r1b1 = 0x73
-				this.r1b2 = 0x74
-				this.r1b3 = 0x61
-				this.r1b4 = 0x74
-				this.r1b5 = 0x75
-				this.r1b6 = 0x73
-				this.r1len = 7
-				this.request.SetPath(this.r1b0, this.r1b1, this.r1b2, this.r1b3, this.r1b4, this.r1b5, this.r1b6, this.r1len)
-			}
-
-			if (route == 2) {
-				this.r2b0 = 0x2F
-				this.r2b1 = 0x73
-				this.r2b2 = 0x74
-				this.r2b3 = 0x61
-				this.r2b4 = 0x74
-				this.r2b5 = 0x75
-				this.r2b6 = 0x73
-				this.r2len = 7
-				this.request2.SetPath(this.r2b0, this.r2b1, this.r2b2, this.r2b3, this.r2b4, this.r2b5, this.r2b6, this.r2len)
-				this.route2Configured = true
-			}
-
-			if (route == 3) {
-				this.r3b0 = 0x2F
-				this.r3b1 = 0x73
-				this.r3b2 = 0x74
-				this.r3b3 = 0x61
-				this.r3b4 = 0x74
-				this.r3b5 = 0x75
-				this.r3b6 = 0x73
-				this.r3len = 7
-				this.request3.SetPath(this.r3b0, this.r3b1, this.r3b2, this.r3b3, this.r3b4, this.r3b5, this.r3b6, this.r3len)
-				this.route3Configured = true
-			}
-		}
+		return this.endpoint.HandleFrame()
 	}
 
 	/**
-	 * Clears previous response state before loading a new received frame.
+	 * Resumes Pending work without repeating accepted handler actions.
 	 */
-	public fn BeginFrame()
+	public fn Poll() HttpTransportState
 	{
-		this.response.Invalidate()
-		this.content.Release()
-		this.synFrame.Invalidate()
-		this.synPacket.Invalidate()
-		this.synSegment.Invalidate()
-
-		if (this.synData.IsReady()) {
-			this.synData.TryRelease()
-		}
-		else {
-			this.synData.TryClear()
-		}
-
-		this.conn.Invalidate()
-
-		this.responseKind = RESPONSE_NONE
-		this.responseLength = 0
+		return this.endpoint.Poll()
 	}
 
 	/**
-	 * Closes only the borrowed TCP request view before another reader reparses
-	 * Ethernet/IPv4. Prepared responses and connection state are retained.
+	 * Returns the current lifecycle phase without progressing work.
 	 */
-	public fn InvalidateRequest()
+	public fn GetState() HttpTransportState
 	{
-		this.conn.Invalidate()
+		return this.endpoint.GetState()
 	}
 
 	/**
-	 * Classifies the loaded frame and selects the response kind and length.
-	 * Handles SYN (TCP handshake) and PSH+ACK GET / (HTTP response).
+	 * Returns the selected protocol kind, independent of application route identity.
 	 */
-	public fn HandleFrame()
+	public fn GetResponseKind() HttpNetworkResponse
 	{
-		if (this.HasResponse()) {
-			return
-		}
-
-		this.conn.TryParse()
-		var localPortNumber = NetworkOrder.Word(this.localPort[0], this.localPort[1])
-		this.responseKind = RESPONSE_NONE
-		this.responseLength = 0
-
-		if (this.conn.IsSynRequest(this.localIp, localPortNumber)) {
-			var peerSequence = this.conn.GetSequenceNumber()
-			var s0: int = ((peerSequence / HIGH_BYTE_SCALE) % BYTE_RADIX) as int
-			var s1: int = ((peerSequence / WORD_RADIX) % BYTE_RADIX) as int
-			var s2: int = ((peerSequence / BYTE_RADIX) % BYTE_RADIX) as int
-			var s3: int = ((peerSequence) % BYTE_RADIX) as int
-
-			var a3: int = s3 + 1
-			var carry3: int = a3 / 256
-			var a3mod: int = a3 % 256
-			var a2: int = s2 + carry3
-			var carry2: int = a2 / 256
-			var a2mod: int = a2 % 256
-			var a1: int = s1 + carry2
-			var carry1: int = a1 / 256
-			var a1mod: int = a1 % 256
-			var a0: int = s0 + carry1
-			var a0mod: int = a0 % 256
-
-			var ack0b: byte = a0mod as byte
-			var ack1b: byte = a1mod as byte
-			var ack2b: byte = a2mod as byte
-			var ack3b: byte = a3mod as byte
-
-			var peerAddress = this.conn.GetSourceIpv4()
-			var peerPort = this.conn.GetSourcePort()
-			var destinationPort: byte[2] = [NetworkOrder.HighByte(peerPort), NetworkOrder.LowByte(peerPort)]
-			var identification: byte[2] = [0x00, 0x02]
-			var sequence: byte[4] = [0x00, 0x00, 0x00, 0x01]
-			var acknowledgment: byte[4] = [ack0b, ack1b, ack2b, ack3b]
-			var window: byte[2] = [0x04, 0x00]
-			var peerMac = this.conn.GetSourceMac()
-			this.synData.TryPublish()
-			var result = this.synSegment.TryPrepare(this.localIp, peerAddress,
-				this.localPort, destinationPort, sequence, acknowledgment, 0x12, window)
-
-			if (result == PacketDataResult.Success) {
-				result = this.synPacket.TryPrepare(this.localIp, peerAddress, identification)
-			}
-
-			if (result == PacketDataResult.Success) {
-				result = this.synFrame.TryPrepare(this.localMac, peerMac)
-			}
-
-			if (result != PacketDataResult.Success) {
-				return
-			}
-
-			this.connState = CONN_SYN_RECEIVED
-			this.responseKind = RESPONSE_SYN_ACK
-			this.responseLength = SYN_ACK_RESPONSE_LENGTH
-			return
-		}
-
-		if (this.connState == CONN_SYN_RECEIVED) {
-
-			if (this.conn.IsAckOnlyPacket(this.localIp, localPortNumber)) {
-				this.connState = CONN_ESTABLISHED
-			}
-
-			if (this.conn.IsPshAckPacket(this.localIp, localPortNumber)) {
-				this.connState = CONN_ESTABLISHED
-			}
-		}
-
-		var httpRouteAccepted = false
-		var route = 0
-
-		if (this.connState == CONN_ESTABLISHED) {
-
-			if (this.conn.IsPshAckPacket(this.localIp, localPortNumber) && this.request.IsGetRequest()) {
-				route = 1
-
-				this.responseKind = RESPONSE_HTTP
-				httpRouteAccepted = true
-			}
-
-			if (this.route2Configured == true) {
-
-				if (this.conn.IsPshAckPacket(this.localIp, localPortNumber) && this.request2.IsGetRequest()) {
-					this.responseKind = RESPONSE_HTTP_ROUTE2
-					route = 2
-
-					httpRouteAccepted = true
-				}
-			}
-
-			if (this.route3Configured == true) {
-
-				if (this.conn.IsPshAckPacket(this.localIp, localPortNumber) && this.request3.IsGetRequest()) {
-					this.responseKind = RESPONSE_HTTP_ROUTE3
-					route = 3
-
-					httpRouteAccepted = true
-				}
-			}
-		}
-
-		if (httpRouteAccepted == true) {
-			var requestPayloadLength = this.conn.GetDeclaredPayloadLength()
-
-			var peerSequence = this.conn.GetSequenceNumber()
-			var httpS0: int = ((peerSequence / HIGH_BYTE_SCALE) % BYTE_RADIX) as int
-			var httpS1: int = ((peerSequence / WORD_RADIX) % BYTE_RADIX) as int
-			var httpS2: int = ((peerSequence / BYTE_RADIX) % BYTE_RADIX) as int
-			var httpS3: int = ((peerSequence) % BYTE_RADIX) as int
-
-			var httpA3: int = httpS3 + requestPayloadLength
-			var httpCarry3: int = httpA3 / 256
-			var httpA3mod: int = httpA3 % 256
-			var httpA2: int = httpS2 + httpCarry3
-			var httpCarry2: int = httpA2 / 256
-			var httpA2mod: int = httpA2 % 256
-			var httpA1: int = httpS1 + httpCarry2
-			var httpCarry1: int = httpA1 / 256
-			var httpA1mod: int = httpA1 % 256
-			var httpA0: int = httpS0 + httpCarry1
-			var httpA0mod: int = httpA0 % 256
-
-			var httpAck0b: byte = httpA0mod as byte
-			var httpAck1b: byte = httpA1mod as byte
-			var httpAck2b: byte = httpA2mod as byte
-			var httpAck3b: byte = httpA3mod as byte
-
-			var peerAddress = this.conn.GetSourceIpv4()
-			var peerPort = this.conn.GetSourcePort()
-			var destinationPort: byte[2] = [NetworkOrder.HighByte(peerPort), NetworkOrder.LowByte(peerPort)]
-			var identification: byte[2] = [0x00, 0x01]
-			var sequence: byte[4] = [0x00, 0x00, 0x00, 0x02]
-			var acknowledgment: byte[4] = [httpAck0b, httpAck1b, httpAck2b, httpAck3b]
-			var window: byte[2] = [0x04, 0x00]
-			var peerMac = this.conn.GetSourceMac()
-			var result = this.content.TrySelect(route)
-
-			if (result == PacketDataResult.Success) {
-				this.responseBodyLength = this.content.GetAvailableLength()
-				result = this.response.TryPrepare(this.localMac, peerMac, this.localIp,
-					peerAddress, this.localPort, destinationPort, sequence, acknowledgment, 0x19, window)
-			}
-
-			if (result != PacketDataResult.Success) {
-				this.response.Invalidate()
-				this.content.Release()
-				this.responseKind = RESPONSE_NONE
-				this.responseLength = 0
-				return
-			}
-
-			this.responseLength = this.response.GetAvailableLength()
-
-			this.connState = CONN_CLOSED
-			return
-		}
-
-		this.responseKind = RESPONSE_NONE
-		this.responseLength = 0
+		return this.endpoint.GetResponseKind()
 	}
 
 	/**
-	 * Returns true when the loaded frame selected a response.
+	 * Records successful local emission and retains readable bytes.
+	 * Call only after first emission; success is not peer acknowledgement.
 	 */
-	public fn HasResponse() bool
+	public fn MarkEmitted() bool
 	{
-		return this.responseKind != RESPONSE_NONE
+		return this.endpoint.MarkEmitted()
 	}
 
 	/**
-	 * Returns true when the loaded frame was accepted as a GET / (route 1) request.
+	 * Closes a Retained response after all downstream readers stop.
+	 * Returns false outside Retained or when completion fails.
 	 */
-	public fn AcceptedHttpRequest() bool
+	public fn Complete() bool
 	{
-		return this.responseKind == RESPONSE_HTTP
+		return this.endpoint.Complete()
 	}
 
 	/**
-	 * Returns true when the loaded frame was accepted as route 2 request.
+	 * Cancels active work and resets the narrow TCP session.
+	 * Requires stopped downstream readers; does not release caller-owned RX.
 	 */
-	public fn AcceptedRoute(route: int) bool
+	public fn Abort()
 	{
-		if (route == 1) {
-			return this.responseKind == RESPONSE_HTTP
-		}
-
-		if (route == 2) {
-			return this.responseKind == RESPONSE_HTTP_ROUTE2
-		}
-
-		if (route == 3) {
-			return this.responseKind == RESPONSE_HTTP_ROUTE3
-		}
-
-		return false
-	}
-
-	public fn AcceptedRoute2Request() bool
-	{
-		return this.AcceptedRoute(2)
+		this.endpoint.Abort()
 	}
 
 	/**
-	 * Returns true when the loaded frame was accepted as route 3 request.
+	 * Closes inactive views and returns Success before RX reuse.
+	 * Pending, Prepared and Retained return Busy and retain their borrows.
 	 */
-	public fn AcceptedRoute3Request() bool
+	public fn TryRelease() PacketDataResult
 	{
-		return this.AcceptedRoute(3)
+		return this.endpoint.TryRelease()
 	}
 
 	/**
-	 * Returns the selected response kind constant.
+	 * Reports current Prepared/Retained publication availability, not a reservation.
 	 */
-	public fn GetResponseKind() int
+	override fn IsReady() bool
 	{
-		return this.responseKind
+		return this.endpoint.IsReady()
 	}
 
 	/**
-	 * Returns the selected response length in bytes.
+	 * Returns the complete Ethernet frame byte extent, or zero without publication.
 	 */
-	public fn GetResponseLength() int
+	override fn GetAvailableLength() int
 	{
-		return this.responseLength
+		return this.endpoint.GetAvailableLength()
 	}
 
 	/**
-	 * Returns true when index addresses a byte supplied by the application body store.
+	 * Reads a checked zero-based frame byte while published.
+	 * Check PacketDataResult before using value; retain RX and body providers.
 	 */
-	public fn IsHttpBodyFrameIndex(index: int) bool
+	override fn TryRead(index: int, value: out byte) PacketDataResult
 	{
-		var bodyOffset = this.responseGenerator.GetBodyFrameOffset(this.responseBodyLength)
-		return index >= bodyOffset && index < this.response.GetAvailableLength()
+		return this.endpoint.TryRead(index, value)
 	}
 
-	/**
-	 * Converts a full-frame HTTP body index to a zero-based body byte index.
-	 */
-	public fn GetHttpBodyIndex(index: int) int
-	{
-		return index - this.responseGenerator.GetBodyFrameOffset(this.responseBodyLength)
-	}
-
-	/** Reads only prepared bytes; output is usable only on Success. */
-	public fn TryReadResponse(index: int, value: out byte) PacketDataResult
-	{
-		value = 0x00
-
-		if (this.responseKind == RESPONSE_SYN_ACK) {
-			return this.synFrame.TryRead(index, value)
-		}
-
-		if (this.responseKind == RESPONSE_HTTP || this.responseKind == RESPONSE_HTTP_ROUTE2 || this.responseKind == RESPONSE_HTTP_ROUTE3) {
-			return this.response.TryRead(index, value)
-		}
-
-		return PacketDataResult.NotReady
-	}
 }

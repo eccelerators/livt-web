@@ -1,0 +1,99 @@
+namespace Livt.Web.Tests.Http
+
+using Livt.Net
+using Livt.Web.Http
+
+/**
+ * Synthetic borrowed source with independently controllable contract failures.
+ */
+component HttpResponseTestData : IHttpResponse
+{
+	length: int
+	ready: bool
+	failAt: int
+	failure: PacketDataResult
+	reads: int
+	status: HttpStatus
+	contentType: HttpContentType
+	allowed: HttpAllowedMethods
+
+	public fn Select(length: int)
+	{
+		this.length = length
+		ready = true
+		failAt = -1
+		reads = 0
+		status = HttpStatus.Ok
+		contentType = HttpContentType.Html
+		allowed = HttpAllowedMethods.None
+	}
+
+	public fn Metadata(status: HttpStatus, contentType: HttpContentType, allowed: HttpAllowedMethods)
+	{
+		this.status = status
+		this.contentType = contentType
+		this.allowed = allowed
+	}
+
+	public fn FailAt(index: int, failure: PacketDataResult)
+	{
+		failAt = index
+		this.failure = failure
+	}
+
+	public fn Release()
+	{
+		ready = false
+	}
+
+	public fn GetReads() int
+	{
+		return reads
+	}
+
+	override fn IsReady() bool
+	{
+		return ready
+	}
+
+	override fn GetAvailableLength() int
+	{
+		return length
+	}
+
+	override fn GetStatus() HttpStatus
+	{
+		return status
+	}
+
+	override fn GetContentType() HttpContentType
+	{
+		return contentType
+	}
+
+	override fn GetAllowedMethods() HttpAllowedMethods
+	{
+		return allowed
+	}
+
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		reads = reads + 1
+		value = 0xFF
+
+		if (!ready) {
+			return PacketDataResult.NotReady
+		}
+
+		if (index == failAt) {
+			return failure
+		}
+
+		if (index < 0 || index >= length) {
+			return PacketDataResult.Invalid
+		}
+
+		value = (index % 256) as byte
+		return PacketDataResult.Success
+	}
+}

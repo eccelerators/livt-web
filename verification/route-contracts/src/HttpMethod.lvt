@@ -1,0 +1,9 @@
+namespace Livt.Web.Prototype
+using Livt.Net
+
+enum HttpMethod
+{
+	Get
+	Head
+	Other
+}

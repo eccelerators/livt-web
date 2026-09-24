@@ -1,0 +1,8 @@
+namespace Livt.Web.Prototype
+using Livt.Net
+
+/** Matching has no handler side effects. */
+interface IHttpRouteMatcher
+{
+	fn TryMatch() HttpMatchResult
+}

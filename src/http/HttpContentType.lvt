@@ -1,0 +1,14 @@
+namespace Livt.Web.Http
+
+using Livt.Net
+
+/**
+ * Semantic metadata; enum ordinals are not wire values.
+ */
+enum HttpContentType
+{
+	Unknown
+	Html
+	PlainText
+	Json
+}
