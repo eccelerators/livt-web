@@ -23,10 +23,13 @@ these notes. No package-wide optimization changes are required.
 
 ## Context-free TCP sequence helper (#544, #545, #547)
 
-HttpTcpSequence uses a four-step ascending loop with a derived descending index.
-The equivalent `i = 3; i >= 0; i--` loop is currently rejected as unbounded (#544).
-Byte extraction uses unsigned shifts: named or cast unsigned constant divisors
-produce a false variable-divisor diagnostic (#545).
+HttpTcpSequence now uses one unsigned 32-bit addition and unsigned shifts to
+extract network-order bytes. This replaces the former ascending carry loop,
+whose signed divide/remainder chain failed the board's 100 MHz timing target.
+The six independent sequence tests cover byte carry, full wrap, zero advance,
+the signed boundary, a full payload and the largest nonnegative count.
+The historical descending-loop (#544) and unsigned-divisor (#545) compiler
+regressions remain tracked; the current helper needs neither construct.
 
 Initialize the local byte array with explicit indexed assignments. An array
 initializer containing parameter expressions in a context-free function is

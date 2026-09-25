@@ -15,14 +15,17 @@ component HttpRequestHeaders<S: IPacketData, MAX_BYTES: int, MAX_HEADERS: int>
 	const TRANSFER[17] = [0x74, 0x72, 0x61, 0x6E, 0x73, 0x66, 0x65, 0x72, 0x2D, 0x65, 0x6E, 0x63, 0x6F, 0x64, 0x69, 0x6E, 0x67]
 	const EXPECT[6] = [0x65, 0x78, 0x70, 0x65, 0x63, 0x74]
 
+	// Include the end-of-input position as well as every valid byte offset.
+	const RANGE_BITS: int = Bits.RequiredFor(MAX_BYTES)
+
 	// Borrowed cursor positioned immediately after the request line.
 	cursor: HttpRequestCursor<S, MAX_BYTES>
 
 	// Owned bounded descriptors; offsets refer to borrowed source bytes.
-	nameOffsets: int[MAX_HEADERS]
-	nameLengths: int[MAX_HEADERS]
-	valueOffsets: int[MAX_HEADERS]
-	valueLengths: int[MAX_HEADERS]
+	nameOffsets: logic[MAX_HEADERS, RANGE_BITS]
+	nameLengths: logic[MAX_HEADERS, RANGE_BITS]
+	valueOffsets: logic[MAX_HEADERS, RANGE_BITS]
+	valueLengths: logic[MAX_HEADERS, RANGE_BITS]
 	kinds: HttpHeaderName[MAX_HEADERS]
 	count: int
 
@@ -118,8 +121,8 @@ component HttpRequestHeaders<S: IPacketData, MAX_BYTES: int, MAX_HEADERS: int>
 			return HttpRequestResult.Malformed
 		}
 
-		nameOffsets[count] = nameOffset
-		nameLengths[count] = nameLength
+		nameOffsets[count] = (nameOffset as uint) as logic[RANGE_BITS]
+		nameLengths[count] = (nameLength as uint) as logic[RANGE_BITS]
 		var start = cursor.GetPosition()
 		var end = start
 		var contentStarted = false
@@ -155,8 +158,8 @@ component HttpRequestHeaders<S: IPacketData, MAX_BYTES: int, MAX_HEADERS: int>
 			return HttpRequestResult.Malformed
 		}
 
-		valueOffsets[count] = start
-		valueLengths[count] = end - start
+		valueOffsets[count] = (start as uint) as logic[RANGE_BITS]
+		valueLengths[count] = ((end - start) as uint) as logic[RANGE_BITS]
 		return HttpRequestResult.Ready
 	}
 
@@ -165,7 +168,8 @@ component HttpRequestHeaders<S: IPacketData, MAX_BYTES: int, MAX_HEADERS: int>
 	 */
 	fn Classify() HttpHeaderName
 	{
-		var length = nameLengths[count]
+		var length = (nameLengths[count] as uint) as int
+		var offset = (nameOffsets[count] as uint) as int
 		var kind = HttpHeaderName.Other
 
 		if (length == 4) {
@@ -187,7 +191,7 @@ component HttpRequestHeaders<S: IPacketData, MAX_BYTES: int, MAX_HEADERS: int>
 		for (var i = 0; i < length; i++) {
 			var value: byte = 0x00
 
-			if (!cursor.ReadAt(nameOffsets[count] + i, value)) {
+			if (!cursor.ReadAt(offset + i, value)) {
 				return HttpHeaderName.Other
 			}
 
@@ -230,6 +234,8 @@ component HttpRequestHeaders<S: IPacketData, MAX_BYTES: int, MAX_HEADERS: int>
 	fn CheckField() HttpRequestResult
 	{
 		var kind = this.Classify()
+		var valueOffset = (valueOffsets[count] as uint) as int
+		var valueLength = (valueLengths[count] as uint) as int
 
 		if (cursor.GetResult() != HttpRequestResult.Ready) {
 			return cursor.GetResult()
@@ -238,7 +244,7 @@ component HttpRequestHeaders<S: IPacketData, MAX_BYTES: int, MAX_HEADERS: int>
 		kinds[count] = kind
 
 		if (kind == HttpHeaderName.Host) {
-			if (hostSeen || valueLengths[count] == 0) {
+			if (hostSeen || valueLength == 0) {
 				return HttpRequestResult.Malformed
 			}
 
@@ -247,16 +253,16 @@ component HttpRequestHeaders<S: IPacketData, MAX_BYTES: int, MAX_HEADERS: int>
 		}
 
 		if (kind == HttpHeaderName.ContentLength) {
-			if (lengthSeen || valueLengths[count] == 0) {
+			if (lengthSeen || valueLength == 0) {
 				return HttpRequestResult.Malformed
 			}
 
 			lengthSeen = true
 
-			for (var i = 0; i < valueLengths[count]; i++) {
+			for (var i = 0; i < valueLength; i++) {
 				var value: byte = 0x00
 
-				if (!cursor.ReadAt(valueOffsets[count] + i, value)) {
+				if (!cursor.ReadAt(valueOffset + i, value)) {
 					return cursor.GetResult()
 				}
 
@@ -271,7 +277,7 @@ component HttpRequestHeaders<S: IPacketData, MAX_BYTES: int, MAX_HEADERS: int>
 		}
 
 		if (kind == HttpHeaderName.TransferEncoding) {
-			if (transferSeen || valueLengths[count] == 0) {
+			if (transferSeen || valueLength == 0) {
 				return HttpRequestResult.Malformed
 			}
 
@@ -279,7 +285,7 @@ component HttpRequestHeaders<S: IPacketData, MAX_BYTES: int, MAX_HEADERS: int>
 		}
 
 		if (kind == HttpHeaderName.Expect) {
-			if (expectSeen || valueLengths[count] == 0) {
+			if (expectSeen || valueLength == 0) {
 				return HttpRequestResult.Malformed
 			}
 
@@ -299,16 +305,18 @@ component HttpRequestHeaders<S: IPacketData, MAX_BYTES: int, MAX_HEADERS: int>
 	fn CheckHost() HttpRequestResult
 	{
 		// Restricted host subset: DNS-style name or dotted IPv4, optional decimal port.
+		var valueOffset = (valueOffsets[count] as uint) as int
+		var valueLength = (valueLengths[count] as uint) as int
 		var port = false
 		var portDigits = 0
 		var portValue = 0
 		var labelLength = 0
 		var previous: byte = 0x00
 
-		for (var i = 0; i < valueLengths[count]; i++) {
+		for (var i = 0; i < valueLength; i++) {
 			var value: byte = 0x00
 
-			if (!cursor.ReadAt(valueOffsets[count] + i, value)) {
+			if (!cursor.ReadAt(valueOffset + i, value)) {
 				return cursor.GetResult()
 			}
 
@@ -396,7 +404,7 @@ component HttpRequestHeaders<S: IPacketData, MAX_BYTES: int, MAX_HEADERS: int>
 	 */
 	public fn GetNameOffset(header: int) int
 	{
-		return nameOffsets[header]
+		return (nameOffsets[header] as uint) as int
 	}
 
 	/**
@@ -404,7 +412,7 @@ component HttpRequestHeaders<S: IPacketData, MAX_BYTES: int, MAX_HEADERS: int>
 	 */
 	public fn GetNameLength(header: int) int
 	{
-		return nameLengths[header]
+		return (nameLengths[header] as uint) as int
 	}
 
 	/**
@@ -412,7 +420,7 @@ component HttpRequestHeaders<S: IPacketData, MAX_BYTES: int, MAX_HEADERS: int>
 	 */
 	public fn GetValueOffset(header: int) int
 	{
-		return valueOffsets[header]
+		return (valueOffsets[header] as uint) as int
 	}
 
 	/**
@@ -420,6 +428,6 @@ component HttpRequestHeaders<S: IPacketData, MAX_BYTES: int, MAX_HEADERS: int>
 	 */
 	public fn GetValueLength(header: int) int
 	{
-		return valueLengths[header]
+		return (valueLengths[header] as uint) as int
 	}
 }

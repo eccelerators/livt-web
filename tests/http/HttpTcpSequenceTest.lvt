@@ -24,4 +24,45 @@ component HttpTcpSequenceTest
 		assert bytes[2] == 0x00
 		assert bytes[3] == 0x17
 	}
+
+	@Test
+	fn ZeroAdvance()
+	{
+		var bytes = HttpTcpSequence.Advance(0x89ABCDEF as uint, 0)
+		assert bytes[0] == 0x89
+		assert bytes[1] == 0xAB
+		assert bytes[2] == 0xCD
+		assert bytes[3] == 0xEF
+	}
+
+	@Test
+	fn CrossesSignedBoundary()
+	{
+		var bytes = HttpTcpSequence.Advance(0x7FFFFFF8 as uint, 16)
+		assert bytes[0] == 0x80
+		assert bytes[1] == 0x00
+		assert bytes[2] == 0x00
+		assert bytes[3] == 0x08
+	}
+
+	@Test
+	fn FullSegmentWrap()
+	{
+		var bytes = HttpTcpSequence.Advance(0xFFFFFF00 as uint, 1460)
+		assert bytes[0] == 0x00
+		assert bytes[1] == 0x00
+		assert bytes[2] == 0x04
+		assert bytes[3] == 0xB4
+	}
+
+	@Test
+	fn LargestNonnegativeCount()
+	{
+		var bytes = HttpTcpSequence.Advance(0x80000000 as uint, 2147483647)
+		assert bytes[0] == 0xFF
+		assert bytes[1] == 0xFF
+		assert bytes[2] == 0xFF
+		assert bytes[3] == 0xFF
+	}
+
 }

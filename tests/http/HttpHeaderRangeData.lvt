@@ -1,0 +1,50 @@
+namespace Livt.Web.Tests.Http
+
+using Livt.Net
+
+/**
+ * Immutable 300-byte request with a long value and a second header beyond byte 255.
+ */
+component HttpHeaderRangeData : IPacketData
+{
+	// Independent wire fixture; offsets are not derived from parser helpers.
+	const REQUEST: byte[] = "GET / HTTP/1.0\r\nX:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\nY:z\r\n\r\n".Encode()
+
+	/**
+	 * Constructs an always-readable request fixture.
+	 */
+	new()
+	{
+	}
+
+	/**
+	 * The immutable request is always published.
+	 */
+	override fn IsReady() bool
+	{
+		return true
+	}
+
+	/**
+	 * Returns the complete wire length.
+	 */
+	override fn GetAvailableLength() int
+	{
+		return REQUEST.Length()
+	}
+
+	/**
+	 * Supplies one checked request byte.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (index < 0 || index >= REQUEST.Length()) {
+			return PacketDataResult.Invalid
+		}
+
+		value = REQUEST[index]
+		return PacketDataResult.Success
+	}
+}

@@ -9,6 +9,9 @@ using Livt.Net
  */
 component HttpResponseEncoder<R: IHttpResponse> : IPacketData
 {
+	// Decimal place values, least significant first; no runtime division is needed.
+	const DECIMAL_PLACES: int[10] = [1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000]
+
 	// Borrowed metadata and body; invalidate this encoder before reusing them.
 	response: R
 
@@ -81,18 +84,7 @@ component HttpResponseEncoder<R: IHttpResponse> : IPacketData
 		allowOffset = HttpResponseSyntax.GetAllowedMethodsOffset(allowed)
 		allowLength = HttpResponseSyntax.GetAllowedMethodsLength(allowed)
 
-		// At most ten iterations for a nonnegative 32-bit int. Zero has one digit.
-		var remaining = available
-
-		while (true) {
-			digits[digitCount] = ((remaining % 10) + 48) as byte
-			digitCount = digitCount + 1
-			remaining = remaining / 10
-
-			if (remaining == 0) {
-				break
-			}
-		}
+		this.PrepareLengthDigits(available)
 
 		// Content-Length prefix is 16 bytes; final CRLF/Connection/CRLF is 23.
 		var size = statusLength + typeLength + allowLength + HttpResponseSyntax.LENGTH_PREFIX_LENGTH + digitCount + HttpResponseSyntax.END_LENGTH
@@ -107,6 +99,37 @@ component HttpResponseEncoder<R: IHttpResponse> : IPacketData
 		headerLength = size
 		ready = true
 		return true
+	}
+
+	/**
+	 * Formats a nonnegative 32-bit length into reversed ASCII digits. Ten decimal
+	 * places need at most nine scheduled subtractions each, avoiding a wide divider.
+	 * Requires an unpublished encoder with digitCount reset to zero.
+	 */
+	fn PrepareLengthDigits(length: int)
+	{
+		var remaining = length
+
+		for (var step: int = 0; step < 10; step++) {
+			var placeIndex = 9 - step
+			var place = DECIMAL_PLACES[placeIndex]
+			var digit: byte = 0x00
+
+			while (remaining >= place) {
+				remaining = remaining - place
+				digit = ((digit as int) + 1) as byte
+			}
+
+			digits[placeIndex] = ((digit as int) + 48) as byte
+
+			if (digitCount == 0 && digit != 0) {
+				digitCount = placeIndex + 1
+			}
+		}
+
+		if (digitCount == 0) {
+			digitCount = 1
+		}
 	}
 
 	/**

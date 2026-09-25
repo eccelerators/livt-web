@@ -1,0 +1,47 @@
+namespace Livt.Web.Tests.Http
+
+using Livt.Net
+using Livt.Web.Http
+
+/**
+ * Verifies unsigned, non-power-of-two descriptor bounds through the public view.
+ */
+@Test
+component HttpHeaderRangeTest
+{
+	// Owned immutable source and parser with exactly the source's byte budget.
+	data: HttpHeaderRangeData
+	request: HttpRequestParser<HttpHeaderRangeData, 300, 8, 2>
+
+	/**
+	 * Binds both parsed header views to the same stable request.
+	 */
+	new()
+	{
+		data = new HttpHeaderRangeData()
+		request = new HttpRequestParser<HttpHeaderRangeData, 300, 8, 2>(data)
+	}
+
+	/**
+	 * Lengths and offsets above 255 must retain their unsigned value in nine bits.
+	 */
+	@Test
+	fn ReadsHeadersBeyondUnsignedByteRange()
+	{
+		request.Invalidate()
+		assert request.TryParse() == HttpRequestResult.Ready
+		assert request.GetHeaderCount() == 2
+		assert request.GetHeaderValueLength(0) == 273
+		assert request.GetHeaderNameLength(1) == 1
+		assert request.GetHeaderValueLength(1) == 1
+		var value: byte = 0x00
+		assert request.TryReadHeaderValue(0, 272, value) == PacketDataResult.Success
+		assert value == 0x61
+		assert request.TryReadHeaderName(1, 0, value) == PacketDataResult.Success
+		assert value == 0x59
+		assert request.TryReadHeaderValue(1, 0, value) == PacketDataResult.Success
+		assert value == 0x7A
+		assert request.TryReadHeaderValue(0, 273, value) == PacketDataResult.Invalid
+		assert value == 0x00
+	}
+}

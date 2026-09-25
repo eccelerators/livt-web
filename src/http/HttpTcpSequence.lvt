@@ -12,19 +12,13 @@ class HttpTcpSequence
 	 */
 	public static inline fn Advance[](sequence: uint, count: int) byte[4]
 	{
+		// One unsigned addition wraps at 32 bits; shifts only select network-order bytes.
+		var advanced = sequence + (count as uint)
 		var result: byte[4]
-		result[0] = (sequence >> 24) as byte
-		result[1] = (sequence >> 16) as byte
-		result[2] = (sequence >> 8) as byte
-		result[3] = sequence as byte
-		var carry = count
-
-		for (var step: int = 0; step < 4; step++) {
-			var i = 3 - step
-			var sum = NetworkOrder.ByteValue(result[i]) + carry
-			result[i] = (sum % 256) as byte
-			carry = sum / 256
-		}
+		result[0] = (advanced >> 24) as byte
+		result[1] = (advanced >> 16) as byte
+		result[2] = (advanced >> 8) as byte
+		result[3] = advanced as byte
 
 		return result
 	}

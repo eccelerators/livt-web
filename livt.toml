@@ -16,6 +16,7 @@ components = [
 	"HttpResponseEncoderTest",
 	"HttpRequestParserTest",
 	"HttpRequestBoundsTest",
+	"HttpHeaderRangeTest",
 ]
 
 [dependencies]
